@@ -104,14 +104,11 @@ class PQNAgent(OnPolicyAgent):
         self,
         observations: jax.Array | np.ndarray,
     ) -> OnPolicySample:
-        # Single jit dispatch: key split, H2D copy and forward pass together; the returned
-        # device obs is reused by process_transition so frames are uploaded only once.
-        actions, values, self._action_key, self._last_obs_device = self._sample_and_value_fn(
-            np.asarray(observations).reshape((-1, *self.observation_shape)), self._action_key, self._epsilon
-        )
-        self._last_obs = observations
-        actions, values = jax.device_get((actions, values))
-        return OnPolicySample(actions, values)
+        self._action_key, action_key = jax.random.split(self._action_key)
+        # Cache the device copy so process_transition does not upload the same frames twice.
+        self._last_obs, self._last_obs_device = observations, self._observations(observations)
+        actions, values = self._sample_and_value_fn(self._last_obs_device, action_key, self._epsilon)
+        return OnPolicySample(np.asarray(actions), np.asarray(values))
 
     def process_transition(self, transition: RolloutTransition) -> None:
         if transition.observations is self._last_obs:
