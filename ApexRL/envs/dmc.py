@@ -1,0 +1,140 @@
+from functools import lru_cache
+import warnings
+from dataclasses import dataclass
+
+import gymnasium as gym
+import mujoco
+from dm_control import suite
+from dm_control.mujoco import index as dmc_index
+from gymnasium import spaces
+from gymnasium.wrappers import FlattenObservation
+from shimmy import DmControlCompatibilityV0 as DmControltoGymnasium
+
+
+# 20 tasks
+DMC_EASY_MEDIUM = [
+    "acrobot-swingup",
+    "ball_in_cup-catch",
+    "cartpole-balance",
+    "cartpole-balance_sparse",
+    "cartpole-swingup",
+    "cartpole-swingup_sparse",
+    "cheetah-run",
+    "finger-spin",
+    "finger-turn_easy",
+    "finger-turn_hard",
+    "fish-swim",
+    "hopper-hop",
+    "hopper-stand",
+    "pendulum-swingup",
+    "quadruped-walk",
+    "quadruped-run",
+    "reacher-easy",
+    "reacher-hard",
+    "walker-stand",
+    "walker-walk",
+    "walker-run",
+]
+
+# 8 tasks
+DMC_SPARSE = [
+    "cartpole-balance_sparse",
+    "cartpole-swingup_sparse",
+    "ball_in_cup-catch",
+    "finger-spin",
+    "finger-turn_easy",
+    "finger-turn_hard",
+    "reacher-easy",
+    "reacher-hard",
+]
+
+# 7 tasks
+DMC_HARD = [
+    "humanoid-stand",
+    "humanoid-walk",
+    "humanoid-run",
+    "dog-stand",
+    "dog-walk",
+    "dog-run",
+    "dog-trot",
+]
+
+
+@dataclass(frozen=True)
+class DMCPhysicsMods:
+    """Multiplicative scale factors for dm_control MJCF model parameters.
+
+    Each field scales the corresponding mjModel array of the loaded task, e.g.
+    geom_friction scales sliding/torsional/rolling friction of every geom.
+    Default 1.0 keeps the original task unchanged.
+    """
+
+    geom_friction: float = 1.0
+    body_mass: float = 1.0
+    dof_damping: float = 1.0
+    dof_armature: float = 1.0
+
+
+# mjlab requires MuJoCo 3.5.0, but the dm_control named-index schema still
+# references fields removed from newer MuJoCo builds. Keep the mjlab-compatible
+# MuJoCo version and filter only unavailable indexing fields before loading DMC.
+@lru_cache(maxsize=1)
+def _patch_dm_control_mujoco_schema() -> tuple[str, ...]:
+    """Remove dm_control index fields unavailable in the loaded MuJoCo build."""
+    model = mujoco.MjModel.from_xml_string(
+        '<mujoco><worldbody><camera name="compat_camera"/></worldbody></mujoco>'
+    )
+    data = mujoco.MjData(model)
+    missing_fields: list[str] = []
+
+    for struct_name, struct in (("mjmodel", model), ("mjdata", data)):
+        schema = dmc_index.sizes.array_sizes[struct_name]
+        for field_name in tuple(schema):
+            if not hasattr(struct, field_name):
+                schema.pop(field_name)
+                missing_fields.append(f"{struct_name}.{field_name}")
+
+    if missing_fields:
+        warnings.warn(
+            f"Patched dm_control named indexing for MuJoCo {mujoco.__version__}; "
+            f"ignored {len(missing_fields)} unavailable fields.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    return tuple(missing_fields)
+
+
+def make_dmc_env(
+    env_name: str,
+    seed: int,
+    flatten: bool = True,
+    render_mode: str | None = None,
+    physics_mods: DMCPhysicsMods | None = None,
+) -> gym.Env:
+    _patch_dm_control_mujoco_schema()
+    domain_name, task_name = env_name.split("-", maxsplit=1)
+
+    env = suite.load(
+        domain_name=domain_name,
+        task_name=task_name,
+        task_kwargs={"random": seed},
+    )
+    if physics_mods is not None:
+        m = env.physics.model
+        m.geom_friction *= physics_mods.geom_friction
+        m.body_mass *= physics_mods.body_mass
+        m.dof_damping *= physics_mods.dof_damping
+        m.dof_armature *= physics_mods.dof_armature
+    camera_id = 2 if domain_name == "quadruped" else 0
+    env = DmControltoGymnasium(
+        env,
+        render_mode=render_mode,
+        render_height=84,
+        render_width=84,
+        camera_id=camera_id,
+    )
+    if flatten and isinstance(env.observation_space, spaces.Dict):
+        env = FlattenObservation(env)
+
+    return env
