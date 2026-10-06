@@ -10,87 +10,66 @@ from ..config import FastSACConfig
 from .network import Actor, Critic
 
 
-def _select_actor(observations: torch.Tensor, asymmetric_obs: bool, actor_obs_dim: int) -> torch.Tensor:
-    return observations[..., :actor_obs_dim] if asymmetric_obs else observations
-
-
 @torch.no_grad()
-@torch.compile(fullgraph=True, mode="max-autotune")
+@torch.compile
 def update_rms(rms: Network[RMS], observations: torch.Tensor) -> None:
     rms.model.update(observations)
 
 
-def update_critic(
-    critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor], alpha: Network[Alpha],
-    batch: Batch, cfg: FastSACConfig,
-) -> dict[str, torch.Tensor]:
+def update_critic(critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor], alpha: Network[Alpha], batch: Batch, cfg: FastSACConfig) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+    amp = cfg.compute_type == "bfloat16"
     alpha_value = alpha.model().detach()
-    with torch.no_grad():
-        next_observations = _select_actor(batch.next_observations, cfg.asymmetric_obs, actor.model.obs_dim)
-        next_actions, next_log_probs = actor.model.get_action(next_observations)
-        target_logits = target_critic.model(batch.next_observations, next_actions)
-        target_values = batch.rewards + batch.discounts * (1.0 - batch.dones) * (
-            critic.model.dist.bins.to(target_logits) - alpha_value * next_log_probs
-        )
+    # Soft C51 target: each Q head is projected against its own target head (no CDQ)
+    with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp):
+        next_actions, next_log_probs = actor.model.get_action(batch.next_observations[..., :actor.model.obs_dim])
+        target_logits = target_critic.model(batch.next_observations, next_actions)                 # [E, B, A]
+        target_values = batch.rewards + batch.discounts * (1.0 - batch.dones) * (critic.model.dist.bins - alpha_value * next_log_probs)
         target_probs = torch.vmap(critic.model.dist.target_probs, in_dims=(0, None))(target_logits, target_values)
 
-    logits = critic.model(batch.observations, batch.actions)
-    losses = torch.vmap(critic.model.dist._loss_one, in_dims=(0, 0))(logits, target_probs)
-    loss = losses.mean()
-    mean_q = critic.model.dist.q_values(logits).mean().detach().clone()
+    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp):
+        logits = critic.model(batch.observations, batch.actions)
+    # Sum over Q heads, mean over batch (upstream: critic_losses.mean(dim=1).sum(dim=0))
+    loss = -(target_probs * logits.log_softmax(-1)).sum(-1).mean(-1).sum()
     critic.opt.zero_grad(set_to_none=True)
     loss.backward()
     critic.grad_step(cfg.max_grad_norm)
-    return {"critic/loss": loss.detach().clone(), "critic/mean_q": mean_q}
+    # next_log_probs is returned so update_alpha can reuse it (as upstream)
+    return {"critic/loss": loss.detach(), "critic/mean_q": critic.model.dist.q_values(logits.detach()).mean()}, next_log_probs
 
 
-def update_alpha(alpha: Network[Alpha], entropy: torch.Tensor, target_entropy: float) -> dict[str, torch.Tensor]:
+def update_alpha(alpha: Network[Alpha], log_probs: torch.Tensor, target_entropy: float) -> dict[str, torch.Tensor]:
     value = alpha.model()
-    loss = value * (entropy.detach() - target_entropy)
-    info = {"alpha/loss": loss.detach().clone(), "alpha/value": value.detach().clone()}
+    loss = (-value * (log_probs.detach() + target_entropy)).mean()
     alpha.opt.zero_grad(set_to_none=True)
     loss.backward()
     alpha.grad_step()
-    return info
+    return {"alpha/loss": loss.detach(), "alpha/value": value.detach()}
 
 
-def update_actor(
-    actor: Network[Actor], critic: Network[Critic], alpha: Network[Alpha], batch: Batch, cfg: FastSACConfig,
-) -> dict[str, torch.Tensor]:
+def update_actor(actor: Network[Actor], critic: Network[Critic], alpha: Network[Alpha], batch: Batch, cfg: FastSACConfig) -> dict[str, torch.Tensor]:
     alpha_value = alpha.model().detach()
-    actor_observations = _select_actor(batch.observations, cfg.asymmetric_obs, actor.model.obs_dim)
-    critic.model.requires_grad_(False)
-    try:
-        actions, log_probs = actor.model.get_action(actor_observations)
-        q_value = critic.model.q_values(batch.observations, actions).mean(dim=0)
-        loss = (alpha_value * log_probs - q_value).mean()
-        info = {"actor/loss": loss.detach().clone(), "actor/entropy": -log_probs.mean().detach().clone()}
-        actor.opt.zero_grad(set_to_none=True)
-        loss.backward()
-        actor.grad_step(cfg.max_grad_norm)
-    finally:
-        critic.model.requires_grad_(True)
-    return info
+    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=cfg.compute_type == "bfloat16"):
+        actions, log_probs = actor.model.get_action(batch.observations[..., :actor.model.obs_dim])
+        q = critic.model.q_values(batch.observations, actions).mean(0)                              # [B, 1]
+    loss = (alpha_value * log_probs - q).mean()
+    actor.opt.zero_grad(set_to_none=True)
+    loss.backward(inputs=list(actor.model.parameters()))    # skip critic grads
+    actor.grad_step(cfg.max_grad_norm)
+    return {"actor/loss": loss.detach(), "actor/entropy": -log_probs.detach().mean()}
 
 
 def make_update(cfg: FastSACConfig) -> Callable[..., dict[str, torch.Tensor]]:
-    @torch.compile(mode="max-autotune")
-    def update(
-        critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor], alpha: Network[Alpha],
-        observation_rms: Network[RMS] | None, sequence: SequenceBatch, do_actor: bool,
-    ) -> dict[str, torch.Tensor]:
-        torch.compiler.cudagraph_mark_step_begin()
-        if observation_rms is not None:
-            sequence = SequenceBatch(
-                observation_rms.model(sequence.observations.float()), sequence.actions, sequence.rewards,
-                sequence.terminations, sequence.truncations,
-                observation_rms.model(sequence.next_observations.float()),
-            )
+    @torch.compile
+    def update(critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor], alpha: Network[Alpha], observation_rms: Network[RMS] | None, sequence: SequenceBatch, do_actor: bool) -> dict[str, torch.Tensor]:
+        # n-step compress first, then normalize only the two observation tensors that are used
         batch = compress_n_step(sequence, cfg.gamma)
-        critic_info = update_critic(critic, target_critic, actor, alpha, batch, cfg)
-        actor_observations = _select_actor(batch.observations, cfg.asymmetric_obs, actor.model.obs_dim)
-        _, log_probs = actor.model.get_action(actor_observations)
-        alpha_info = update_alpha(alpha, -log_probs.mean(), cfg.target_entropy) if cfg.use_autotune else {"alpha/value": alpha.model().detach().clone()}
+        obs, next_obs = batch.observations.float(), batch.next_observations.float()
+        if observation_rms is not None:
+            obs, next_obs = observation_rms.model(obs), observation_rms.model(next_obs)
+        # Build Batch explicitly (not ._replace) so dynamo can reconstruct it across the backward() graph break
+        batch = Batch(obs, batch.actions, batch.rewards, batch.dones, next_obs, batch.discounts)
+        critic_info, next_log_probs = update_critic(critic, target_critic, actor, alpha, batch, cfg)
+        alpha_info = update_alpha(alpha, next_log_probs, cfg.target_entropy) if cfg.use_autotune else {"alpha/value": alpha.model().detach()}
         actor_info = update_actor(actor, critic, alpha, batch, cfg) if do_actor else {}
         return {**critic_info, **alpha_info, **actor_info}
 

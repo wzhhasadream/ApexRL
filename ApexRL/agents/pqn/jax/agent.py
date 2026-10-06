@@ -33,6 +33,7 @@ class PQNAgent(OnPolicyAgent):
             jax.random.PRNGKey(cfg.seed)
         )
         self._current_rollout_idx = 0
+        self._last_obs, self._last_obs_device = None, None
         self._init_train_state()
         self._init_cached_fn()
 
@@ -45,6 +46,7 @@ class PQNAgent(OnPolicyAgent):
         )
         num_updates = num_rollouts * cfg.num_minibatches * cfg.update_epochs
         self.epsilon_schedule = optax.linear_schedule(cfg.start_e, cfg.end_e, num_rollouts)
+        self._epsilon = jax.device_put(jnp.asarray(cfg.start_e, jnp.float32), self.learner_device)
         optimizer_schedule = (
             optax.linear_schedule(cfg.learning_rate, 0.0, num_updates)
             if cfg.anneal_lr
@@ -63,6 +65,10 @@ class PQNAgent(OnPolicyAgent):
             nnx.Optimizer(model, optax.radam(optimizer_schedule), wrt=nnx.Param),
             forward_name="select_action"
         )
+        # Commit params/opt state to the learner device up front; otherwise the first
+        # update flips them uncommitted -> committed and every jitted fn compiles twice.
+        state = nnx.state(self.critic)
+        nnx.update(self.critic, jax.device_put(state, self.learner_device))
         self.replay_buffer = JaxBuffer.create(
             cfg.rollout_steps,
             self.num_envs,
@@ -82,12 +88,8 @@ class PQNAgent(OnPolicyAgent):
         self._update_fn = nnx.cached_partial(make_update(self.cfg), self.critic)
 
     def _observations(self, observations: jax.Array | np.ndarray) -> jax.Array:
-        return jnp.asarray(observations, dtype=jnp.float32).reshape(
-            (-1, *self.observation_shape)
-        )
-
-    def _epsilon(self) -> float:
-        return float(self.epsilon_schedule(self._current_rollout_idx))
+        # Keep uint8 on transfer (4x less than float32); the network casts on device.
+        return jax.device_put(observations, self.learner_device).reshape((-1, *self.observation_shape))
 
     def get_action(self, observations: jax.Array | np.ndarray) -> np.ndarray:
         return np.asarray(self._get_eval_fn(self._observations(observations)))
@@ -102,15 +104,19 @@ class PQNAgent(OnPolicyAgent):
         self,
         observations: jax.Array | np.ndarray,
     ) -> OnPolicySample:
-        self._action_key, action_key = jax.random.split(self._action_key)
-        actions, values = self._sample_and_value_fn(
-            self._observations(observations), action_key, self._epsilon()
+        # Single jit dispatch: key split, H2D copy and forward pass together; the returned
+        # device obs is reused by process_transition so frames are uploaded only once.
+        actions, values, self._action_key, self._last_obs_device = self._sample_and_value_fn(
+            np.asarray(observations).reshape((-1, *self.observation_shape)), self._action_key, self._epsilon
         )
-        return OnPolicySample(np.asarray(actions), np.asarray(values))
+        self._last_obs = observations
+        actions, values = jax.device_get((actions, values))
+        return OnPolicySample(actions, values)
 
     def process_transition(self, transition: RolloutTransition) -> None:
+        if transition.observations is self._last_obs:
+            transition = transition._replace(observations=self._last_obs_device)
         self.replay_buffer = self.replay_buffer.add(transition)
-        self._env_steps += self.num_envs
 
     @property
     def can_update(self) -> bool:
@@ -127,7 +133,9 @@ class PQNAgent(OnPolicyAgent):
         )
         self.replay_buffer = self.replay_buffer.reset()
         self._current_rollout_idx += 1
-        return {name: float(np.asarray(value)) for name, value in info.items()}
+        # Epsilon changes once per rollout; keep it as a device scalar to avoid per-step host syncs.
+        self._epsilon = jax.device_put(jnp.asarray(self.epsilon_schedule(self._current_rollout_idx), jnp.float32), self.learner_device)
+        return {name: float(value) for name, value in jax.device_get(info).items()}
 
     def save(self, checkpoint_dir: str | Path) -> None:
         self.critic.save(Path(checkpoint_dir) / "critic.ckpt")

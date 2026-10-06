@@ -45,7 +45,7 @@ def make_update(cfg):
         last_observations: jax.Array,
         key: jax.Array
     ) -> dict[str, jax.Array]:
-        last_q_values = critic.model(last_observations, training=True).max(axis=-1, keepdims=True)
+        last_q_values = critic.model(last_observations, training=False).max(axis=-1, keepdims=True)
         buffer = buffer.compute_returns(last_q_values, cfg.gamma, cfg.q_lambda)
         batches = buffer.sample(key, cfg.num_minibatches, cfg.update_epochs)
 

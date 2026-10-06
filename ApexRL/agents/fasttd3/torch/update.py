@@ -10,77 +10,58 @@ from ..config import FastTD3Config
 from .network import Actor, Critic
 
 
-def _select_actor(observations: torch.Tensor, asymmetric_obs: bool, actor_obs_dim: int) -> torch.Tensor:
-    return observations[..., :actor_obs_dim] if asymmetric_obs else observations
-
-
 @torch.no_grad()
-@torch.compile(fullgraph=True, mode="max-autotune")
+@torch.compile
 def update_rms(rms: Network[RMS], observations: torch.Tensor) -> None:
     rms.model.update(observations)
 
 
-def update_critic(
-    critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor],
-    batch: Batch, cfg: FastTD3Config,
-) -> dict[str, torch.Tensor]:
-    with torch.no_grad():
-        next_observations = _select_actor(batch.next_observations, cfg.asymmetric_obs, actor.model.obs_dim)
-        noise = torch.randn_like(batch.actions) * cfg.policy_noise
-        noise = noise.clamp(-cfg.noise_clip, cfg.noise_clip)
-        next_actions = (actor.model(next_observations) + noise).clamp(
-            actor.model.policy.action_low, actor.model.policy.action_high
-        )
-        target_logits = target_critic.model(batch.next_observations, next_actions)
-        target_values = batch.rewards + batch.discounts * (1.0 - batch.dones) * critic.model.dist.bins.to(target_logits)
+def update_critic(critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor], batch: Batch, cfg: FastTD3Config) -> dict[str, torch.Tensor]:
+    amp = cfg.compute_type == "bfloat16"
+    bins = critic.model.dist.bins
+    # Target policy smoothing + C51 projection of both target heads
+    with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp):
+        noise = (torch.randn_like(batch.actions) * cfg.policy_noise).clamp(-cfg.noise_clip, cfg.noise_clip)
+        next_actions = (actor.model(batch.next_observations[..., :actor.model.obs_dim]) + noise).clamp(actor.model.policy.action_low, actor.model.policy.action_high)
+        target_logits = target_critic.model(batch.next_observations, next_actions)              # [2, B, A]
+        target_values = batch.rewards + batch.discounts * (1.0 - batch.dones) * bins            # [B, A]
+        target_probs = torch.vmap(critic.model.dist.target_probs, in_dims=(0, None))(target_logits, target_values)
         if cfg.use_cdq:
-            target_logits = critic.model.dist.select_min_logits(target_logits)
-        target_probs = critic.model.dist.target_probs(target_logits, target_values)
+            # Upstream: project both heads, then keep the distribution with the smaller mean
+            projected_q = (target_probs * bins).sum(-1, keepdim=True)                          # [2, B, 1]
+            target_probs = torch.where(projected_q[0] < projected_q[1], target_probs[0], target_probs[1]).expand(2, -1, -1)
 
-    logits = critic.model(batch.observations, batch.actions)
-    target_axes = None if cfg.use_cdq else 0
-    losses = torch.vmap(critic.model.dist._loss_one, in_dims=(0, target_axes))(logits, target_probs)
-    loss = losses.mean()
-    mean_q = critic.model.dist.q_values(logits).mean().detach().clone()
+    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp):
+        logits = critic.model(batch.observations, batch.actions)
+    # Sum over the two heads (qf1_loss + qf2_loss), mean over batch
+    loss = -(target_probs * logits.log_softmax(-1)).sum(-1).mean(-1).sum()
     critic.opt.zero_grad(set_to_none=True)
     loss.backward()
     critic.grad_step(cfg.max_grad_norm)
-    return {"critic/loss": loss.detach().clone(), "critic/mean_q": mean_q}
+    return {"critic/loss": loss.detach(), "critic/mean_q": critic.model.dist.q_values(logits.detach()).mean()}
 
 
-def update_actor(
-    actor: Network[Actor], critic: Network[Critic], batch: Batch, cfg: FastTD3Config,
-) -> dict[str, torch.Tensor]:
-    actor_observations = _select_actor(batch.observations, cfg.asymmetric_obs, actor.model.obs_dim)
-    critic.model.requires_grad_(False)
-    try:
-        actions = actor.model(actor_observations)
-        values = critic.model.q_values(batch.observations, actions)
-        value = values.amin(dim=0) if cfg.use_cdq else values.mean(dim=0)
-        loss = -value.mean()
-        info = {"actor/loss": loss.detach().clone(), "actor/mean_q": value.mean().detach().clone()}
-        actor.opt.zero_grad(set_to_none=True)
-        loss.backward()
-        actor.grad_step(cfg.max_grad_norm)
-    finally:
-        critic.model.requires_grad_(True)
-    return info
+def update_actor(actor: Network[Actor], critic: Network[Critic], batch: Batch, cfg: FastTD3Config) -> dict[str, torch.Tensor]:
+    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=cfg.compute_type == "bfloat16"):
+        q = critic.model.q_values(batch.observations, actor.model(batch.observations[..., :actor.model.obs_dim]))   # [2, B, 1]
+    q = q.amin(0) if cfg.use_cdq else q.mean(0)
+    loss = -q.mean()
+    actor.opt.zero_grad(set_to_none=True)
+    loss.backward(inputs=list(actor.model.parameters()))    # skip critic grads
+    actor.grad_step(cfg.max_grad_norm)
+    return {"actor/loss": loss.detach(), "actor/mean_q": q.detach().mean()}
 
 
 def make_update(cfg: FastTD3Config) -> Callable[..., dict[str, torch.Tensor]]:
-    @torch.compile(mode="max-autotune")
-    def update(
-        critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor],
-        observation_rms: Network[RMS] | None, sequence: SequenceBatch, do_actor: bool,
-    ) -> dict[str, torch.Tensor]:
-        torch.compiler.cudagraph_mark_step_begin()
-        if observation_rms is not None:
-            sequence = SequenceBatch(
-                observation_rms.model(sequence.observations.float()), sequence.actions, sequence.rewards,
-                sequence.terminations, sequence.truncations,
-                observation_rms.model(sequence.next_observations.float()),
-            )
+    @torch.compile
+    def update(critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor], observation_rms: Network[RMS] | None, sequence: SequenceBatch, do_actor: bool) -> dict[str, torch.Tensor]:
+        # n-step compress first, then normalize only the two observation tensors that are used
         batch = compress_n_step(sequence, cfg.gamma)
+        obs, next_obs = batch.observations.float(), batch.next_observations.float()
+        if observation_rms is not None:
+            obs, next_obs = observation_rms.model(obs), observation_rms.model(next_obs)
+        # Build Batch explicitly (not ._replace) so dynamo can reconstruct it across the backward() graph break
+        batch = Batch(obs, batch.actions, batch.rewards, batch.dones, next_obs, batch.discounts)
         critic_info = update_critic(critic, target_critic, actor, batch, cfg)
         actor_info = update_actor(actor, critic, batch, cfg) if do_actor else {}
         return {**critic_info, **actor_info}

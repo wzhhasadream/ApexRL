@@ -6,40 +6,22 @@ from ....model.torch import Network, RMS
 from .network import Actor
 
 
-def _select_actor(observations: torch.Tensor, asymmetric_obs: bool, actor_obs_dim: int) -> torch.Tensor:
-    return observations[..., :actor_obs_dim] if asymmetric_obs else observations
+@torch.no_grad()
+@torch.compile
+def get_eval_action(actor: Network[Actor], observation_rms: Network[RMS] | None, observations: torch.Tensor) -> torch.Tensor:
+    if observation_rms is not None:
+        observations = observation_rms.model(observations)
+    return actor.model(observations[..., :actor.model.obs_dim])
 
 
 @torch.no_grad()
-@torch.compile(fullgraph=True, mode="max-autotune")
-def get_eval_action(
-    actor: Network[Actor],
-    observation_rms: Network[RMS] | None,
-    observations: torch.Tensor,
-    asymmetric_obs: bool,
-    actor_obs_dim: int,
-) -> torch.Tensor:
+@torch.compile
+def get_exploration_action(actor: Network[Actor], observation_rms: Network[RMS] | None, observations: torch.Tensor, noise_scales: torch.Tensor) -> torch.Tensor:
+    # noise_scales: [num_envs, 1], fixed per episode (resampled on done), as in upstream FastTD3
     if observation_rms is not None:
-        observations = observation_rms.model(observations.float())
-    return actor.model(_select_actor(observations, asymmetric_obs, actor_obs_dim))
-
-
-@torch.no_grad()
-@torch.compile(fullgraph=True, mode="max-autotune")
-def get_exploration_action(
-    actor: Network[Actor],
-    observation_rms: Network[RMS] | None,
-    observations: torch.Tensor,
-    asymmetric_obs: bool,
-    actor_obs_dim: int,
-    std_min: float,
-    std_max: float,
-) -> torch.Tensor:
-    if observation_rms is not None:
-        observations = observation_rms.model(observations.float())
-    actions = actor.model(_select_actor(observations, asymmetric_obs, actor_obs_dim))
-    scale = torch.rand((actions.shape[0], 1), device=actions.device) * (std_max - std_min) + std_min
-    actions = actions + torch.randn_like(actions) * scale
+        observations = observation_rms.model(observations)
+    actions = actor.model(observations[..., :actor.model.obs_dim])
+    actions = actions + torch.randn_like(actions) * noise_scales
     return actions.clamp(actor.model.policy.action_low, actor.model.policy.action_high)
 
 

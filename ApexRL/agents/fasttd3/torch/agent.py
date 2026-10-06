@@ -28,6 +28,7 @@ class FastTD3Agent(OffPolicyAgent):
             raise ValueError("FastTD3 requires finite action bounds")
         self.device = default_device()
         self._update_count = 0
+        self._obs_cache = (None, None)
         self._init_state()
 
     def _init_state(self) -> None:
@@ -39,33 +40,42 @@ class FastTD3Agent(OffPolicyAgent):
         )
         action_low = torch.as_tensor(self.action_space.low, dtype=torch.float32, device=self.device)
         action_high = torch.as_tensor(self.action_space.high, dtype=torch.float32, device=self.device)
-        self.observation_rms = Network(RMS(self.observation_shape[0], device=self.device)) if cfg.obs_normalization else None
+        # epsilon=1e-4 makes rsqrt(var + eps) ~ 1 / (std + 1e-2), the upstream EmpiricalNormalization
+        self.observation_rms = Network(RMS(self.observation_shape[0], epsilon=1e-4, device=self.device)) if cfg.obs_normalization else None
         actor_model = Actor(self.actor_obs_shape[0], self.action_dim, cfg, action_low, action_high).to(self.device)
         critic_model = Critic(self.observation_shape[0], self.action_dim, cfg).to(self.device)
         self.actor = Network(actor_model, torch.optim.AdamW(actor_model.parameters(), lr=cfg.actor_learning_rate, weight_decay=cfg.weight_decay, fused=True))
         self.critic = Network(critic_model, torch.optim.AdamW(critic_model.parameters(), lr=cfg.critic_learning_rate, weight_decay=cfg.weight_decay, fused=True))
         self.target_critic = Network(deepcopy(critic_model), source_model=critic_model, tau=cfg.tau)
         self.target_critic.model.requires_grad_(False)
-        self._get_eval_fn = get_eval_action
-        self._get_exploration_fn = get_exploration_action
-        self._update_rms_fn = update_rms if self.observation_rms is not None else None
+        # Per-env exploration std, resampled only when that env's episode ends (upstream FastTD3)
+        self.noise_scales = self._sample_noise_scales()
         self._update_fn = make_update(cfg)
+
+    def _sample_noise_scales(self) -> torch.Tensor:
+        return torch.rand((self.num_envs, 1), device=self.device) * (self.cfg.std_max - self.cfg.std_min) + self.cfg.std_min
 
     def _observations(self, observations: np.ndarray | torch.Tensor) -> torch.Tensor:
         return torch.as_tensor(observations, dtype=torch.float32, device=self.device).reshape((-1, self.observation_shape[0]))
 
     def get_action(self, observation: np.ndarray | torch.Tensor) -> np.ndarray:
-        self.actor.model.eval()
-        return self._get_eval_fn(self.actor, self.observation_rms, self._observations(observation), self.asymmetric_obs, self.actor_obs_shape[0]).cpu().numpy()
+        return get_eval_action(self.actor, self.observation_rms, self._observations(observation)).cpu().numpy()
 
     def get_exploration_action(self, observation: np.ndarray | torch.Tensor) -> np.ndarray:
-        self.actor.model.eval()
-        return self._get_exploration_fn(self.actor, self.observation_rms, self._observations(observation), self.asymmetric_obs, self.actor_obs_shape[0], self.cfg.std_min, self.cfg.std_max).cpu().numpy()
+        obs = self._observations(observation)
+        # Keep the device copy: the runner passes the same array to process_transition right after env.step
+        self._obs_cache = (observation, obs)
+        return get_exploration_action(self.actor, self.observation_rms, obs, self.noise_scales).cpu().numpy()
 
     def process_transition(self, transition: Transition) -> None:
+        # Reuse the device copy from get_exploration_action instead of two more host->device transfers
+        if self._obs_cache[0] is transition.observations:
+            transition = transition._replace(observations=self._obs_cache[1])
         self.replay_buffer.add(transition)
-        if self._update_rms_fn is not None:
-            self._update_rms_fn(self.observation_rms, torch.as_tensor(transition.observations, dtype=torch.float32, device=self.device))
+        if self.observation_rms is not None:
+            update_rms(self.observation_rms, self._observations(transition.observations))
+        dones = torch.as_tensor(np.logical_or(transition.terminations, transition.truncations), device=self.device).reshape(-1, 1)
+        self.noise_scales = torch.where(dones, self._sample_noise_scales(), self.noise_scales)
 
     @property
     def can_update(self) -> bool:
@@ -78,7 +88,8 @@ class FastTD3Agent(OffPolicyAgent):
         self._update_count += 1
         info = self._update_fn(self.critic, self.target_critic, self.actor, self.observation_rms, sequence, self._update_count % self.cfg.policy_frequency == 0)
         self.target_critic.soft_update()
-        return {name: float(value) for name, value in info.items()}
+        # One device->host sync for all metrics instead of one per metric
+        return dict(zip(info.keys(), torch.stack(list(info.values())).tolist()))
 
     def save(self, checkpoint_dir: str | Path) -> None:
         checkpoint_dir = Path(checkpoint_dir)

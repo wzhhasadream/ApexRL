@@ -40,8 +40,16 @@ class PQNAgent(OnPolicyAgent):
         )
         self._num_rollouts = max(1, cfg.total_timesteps // (self.num_envs * cfg.rollout_steps))
         self._epsilon = torch.tensor(cfg.start_e, device=self.device)
+        self._pinned_obs: torch.Tensor | None = None
+        self._last_obs, self._last_obs_device = None, None
 
     def _observations(self, observations: np.ndarray | torch.Tensor) -> torch.Tensor:
+        if isinstance(observations, np.ndarray) and self.device.type == "cuda":
+            # Stage through pinned memory so the host-to-device copy is a non-blocking DMA.
+            if self._pinned_obs is None or self._pinned_obs.shape != observations.shape:
+                self._pinned_obs = torch.empty(observations.shape, dtype=torch.uint8, pin_memory=True)
+            self._pinned_obs.numpy()[...] = observations
+            observations = self._pinned_obs.to(self.device, non_blocking=True)
         return torch.as_tensor(observations, device=self.device).reshape((-1, *self.observation_shape))
 
     @property
@@ -55,10 +63,14 @@ class PQNAgent(OnPolicyAgent):
         return get_value(self.critic, self._observations(observation)).cpu().numpy()
 
     def sample_action_and_value(self, observation: np.ndarray | torch.Tensor) -> OnPolicySample:
-        actions, values = sample_action_and_value(self.critic, self._observations(observation), self._epsilon)
+        # Cache the device copy so process_transition does not upload the same frames twice.
+        self._last_obs, self._last_obs_device = observation, self._observations(observation)
+        actions, values = sample_action_and_value(self.critic, self._last_obs_device, self._epsilon)
         return OnPolicySample(actions.cpu().numpy(), values.cpu().numpy())
 
     def process_transition(self, transition: RolloutTransition) -> None:
+        if transition.observations is self._last_obs:
+            transition = transition._replace(observations=self._last_obs_device)
         self.replay_buffer.add(transition)
 
     @property
@@ -76,19 +88,18 @@ class PQNAgent(OnPolicyAgent):
         last_values = get_value(self.critic, self._observations(last_observations)).reshape(self.num_envs)
         self.replay_buffer.compute_returns(last_values, cfg.gamma, cfg.q_lambda)
 
-        totals: dict[str, torch.Tensor] = {}
-        num_steps = 0
+        infos = []
         for batch in self.replay_buffer.sample(cfg.num_minibatches, cfg.update_epochs):
             torch.compiler.cudagraph_mark_step_begin()
             info = update_critic(self.critic, batch.observations, batch.actions, batch.returns, cfg)
-            for name, value in info.items():
-                totals[name] = totals[name] + value if name in totals else value.clone()
-            num_steps += 1
+            # Clone out of the CUDA-graph output pool; reduce once after the loop.
+            infos.append(torch.stack(tuple(info.values())).clone())
+        means = torch.stack(infos).mean(0).tolist()
 
         self._current_rollout_idx += 1
         self._epsilon.fill_(cfg.start_e + self._progress * (cfg.end_e - cfg.start_e))
         self.replay_buffer.reset()
-        return {name: float(value / num_steps) for name, value in totals.items()}
+        return dict(zip(info.keys(), means))
 
     def save(self, checkpoint_dir: str | Path) -> None:
         self.critic.save(Path(checkpoint_dir) / "critic.pt")

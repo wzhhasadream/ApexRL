@@ -12,7 +12,7 @@ from .wrapper import ActionRepeat, wrap_vector_env
 if TYPE_CHECKING:
     from .dmc import DMCPhysicsMods
 
-CPU_SIM = ("mujoco", "dmc", "myosuite", "humanoid_bench", "metaworld", "atari")
+CPU_SIM = ("mujoco", "dmc", "myosuite", "humanoid_bench", "metaworld")
 GPU_SIM = ("playground", "isaaclab", "maniskill", "mjlab")
 
 
@@ -29,7 +29,6 @@ def create_envs(
     clip_action: bool = True,
     render_mode: str | None = None,
     physics_mods: DMCPhysicsMods | None = None,
-    atari_continuous: bool = False
 ) -> tuple[VectorEnv, VectorEnv, VectorEnv]:
     if action_repeat is None:
         action_repeat = 4 if env_type == "atari" else 1
@@ -45,7 +44,7 @@ def create_envs(
         return env, env, env
 
     envs = []
-    for num_envs, mode, training in ((num_train_envs, None, True), (num_eval_envs, None, False), (num_record_envs, render_mode, False)):
+    for num_envs, mode, training, record in ((num_train_envs, None, True, False), (num_eval_envs, None, False, False), (num_record_envs, render_mode, False, True)):
         vector_repeat = action_repeat
         if env_type == "metaworld" and env_name.upper() in ("MT10", "MT50"):
             from .metaworld import make_metaworld_benchmark_envs
@@ -54,12 +53,22 @@ def create_envs(
                 benchmark_name=env_name, seed=seed, num_envs=num_envs, render_mode=mode,
                 max_episode_steps=max_episode_steps, use_one_hot=True,
             )
+        elif env_type == "atari" and not record:
+            from .atari import make_envpool_atari_env
+
+            env = make_envpool_atari_env(env_name, num_envs, seed, training=training, action_repeat=action_repeat, max_episode_steps=max_episode_steps)
+            vector_repeat = 1
+        elif env_type == "atari":
+            # envpool cannot render, so the record env is a gymnasium env with matching settings.
+            from .atari import make_atari_env
+
+            env = SyncVectorEnv([lambda i=i: make_atari_env(env_name, seed + i, render_mode=mode, action_repeat=action_repeat, max_episode_steps=max_episode_steps) for i in range(num_envs)], autoreset_mode="SameStep")
+            vector_repeat = 1
         elif env_type in CPU_SIM:
             env = create_vec_env(
                 env_type=env_type, env_name=env_name, num_envs=num_envs, seed=seed,
                 rescale_action=rescale_action, max_episode_steps=max_episode_steps,
                 render_mode=mode, action_repeat=action_repeat, physics_mods=physics_mods,
-                atari_continuous=atari_continuous, training=training,
             )
             vector_repeat = 1
         elif env_type == "playground":
@@ -94,38 +103,18 @@ def create_vec_env(
     render_mode: str | None = None,
     action_repeat: int | None = None,
     physics_mods: DMCPhysicsMods | None = None,
-    atari_continuous: bool = False,
-    training: bool = False,
 ) -> VectorEnv:
     if action_repeat is None:
-        action_repeat = 4 if env_type == "atari" else 1
+        action_repeat = 1
     if max_episode_steps is None:
-        max_episode_steps = 108_000 if env_type == "atari" else 1000
+        max_episode_steps = 1000
     is_pixel_obs = env_name.endswith("-visual")
     env_name = env_name.removesuffix("-visual")
-    if is_pixel_obs and env_type != "atari":
+    if is_pixel_obs:
         render_mode = "rgb_array"
 
     def make_one_env(index: int) -> gym.Env:
         env_seed = seed + index
-        if env_type == "atari":
-            from .atari import make_atari_env
-
-            env = make_atari_env(
-                env_name,
-                env_seed,
-                render_mode=render_mode,
-                action_repeat=action_repeat,
-                max_episode_steps=max_episode_steps,
-                continuous=atari_continuous,
-                training=training,
-            )
-
-            # For continuous atari env.
-            if rescale_action and isinstance(env.action_space, gym.spaces.Box):
-                env = RescaleAction(env, np.float32(-1.0), np.float32(1.0))
-            # Atari already repeats actions internally; return before the common wrappers below.
-            return env
         if env_type == "dmc":
             from .dmc import make_dmc_env
 
@@ -154,7 +143,6 @@ def create_vec_env(
         # Count raw environment steps before action repeat and frame stacking.
         env = TimeLimit(env, max_episode_steps)
         if action_repeat > 1:
-            # Only continuous-control environments reach this point; Atari returned above.
             env = ActionRepeat(env, action_repeat)
         if is_pixel_obs:
             env = AddRenderObservation(env, render_only=True)

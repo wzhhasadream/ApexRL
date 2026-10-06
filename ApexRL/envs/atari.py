@@ -127,23 +127,15 @@ ATARI_SCORES = {
 
 
 
-class ContinuousAtariActionAdapter(gym.ActionWrapper):
-    """Convert AtariPreprocessing's scalar reset action to a continuous no-op."""
+class FireReset(gym.Wrapper):
+    """Press FIRE after reset, matching envpool's use_fire_reset=True."""
 
-    def action(self, action):
-        if np.isscalar(action):
-            return np.zeros(self.action_space.shape, dtype=self.action_space.dtype)
-        return np.asarray(action, dtype=self.action_space.dtype)
-
-
-class RewardClip(gym.RewardWrapper):
-    """Clip Atari rewards to the interval [-1, 1]."""
-
-    def reward(self, reward):
-        return np.clip(reward, -1.0, 1.0)
-
-
-
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        obs, _, terminated, truncated, info = self.env.step(1)
+        if terminated or truncated:
+            obs, info = self.env.reset(**kwargs)
+        return obs, info
 
 
 def make_atari_env(
@@ -152,24 +144,70 @@ def make_atari_env(
     render_mode: str | None = None,
     action_repeat: int = 4,
     max_episode_steps: int = 108_000,
-    continuous: bool = False,
-    training: bool = False,
 ) -> gym.Env:
+    """Single gymnasium Atari env for video recording, configured like envpool eval."""
     import ale_py
 
     gym.register_envs(ale_py)
     if not env_name.startswith("ALE/"):
         env_name = f"ALE/{env_name}"
-    env = gym.make(
-        env_name, frameskip=1, obs_type="rgb", max_episode_steps=max_episode_steps, render_mode=render_mode, continuous=continuous
-    )
-    if continuous:
-        env = ContinuousAtariActionAdapter(env)
+    # Sticky actions off to match envpool (purejaxql settings).
+    env = gym.make(env_name, frameskip=1, obs_type="rgb", max_episode_steps=max_episode_steps, render_mode=render_mode, repeat_action_probability=0.0)
     env.reset(seed=seed)
-    env = AtariPreprocessing(env, frame_skip=action_repeat, screen_size=84, grayscale_newaxis=True, terminal_on_life_loss=training)
+    env = AtariPreprocessing(env, frame_skip=action_repeat, screen_size=84, grayscale_newaxis=True)
+    if "FIRE" in env.unwrapped.get_action_meanings():
+        env = FireReset(env)
     env = FrameStackObservation(env, stack_size=4)
-    if training:
-        env = RewardClip(env)
     env.observation_space.seed(seed)
     env.action_space.seed(seed)
     return env
+
+
+class EnvPoolAtari(gym.vector.VectorEnv):
+    """envpool Atari exposed as a gymnasium VectorEnv with SameStep autoreset.
+
+    envpool hard-codes NextStep autoreset, so done slots are reset right after
+    the step and the terminal frame is returned in ``infos["final_obs"]``.
+    Observations are [N, F, H, W, 1] uint8 to match the gymnasium Atari path.
+    """
+
+    metadata = {"autoreset_mode": gym.vector.AutoresetMode.SAME_STEP}
+
+    def __init__(self, env_name: str, num_envs: int, seed: int, training: bool = True, action_repeat: int = 4, max_episode_steps: int = 108_000, num_threads: int = 0) -> None:
+        import envpool
+
+        # purejaxql settings: envpool defaults (noop_max=30, sticky actions off, fire reset)
+        # plus life-loss episodes and reward clipping during training.
+        env_name = env_name.removeprefix("ALE/")
+        self.env = envpool.make(env_name, env_type="gymnasium", num_envs=num_envs, batch_size=num_envs, seed=seed, episodic_life=training, reward_clip=training, frame_skip=action_repeat, max_episode_steps=max_episode_steps // action_repeat, num_threads=num_threads)
+        self.num_envs = num_envs
+        frames, height, width = self.env.observation_space.shape
+        self.single_observation_space = gym.spaces.Box(0, 255, (frames, height, width, 1), np.uint8)
+        self.single_action_space = gym.spaces.Discrete(int(self.env.action_space.n))
+        self.observation_space = gym.vector.utils.batch_space(self.single_observation_space, num_envs)
+        self.action_space = gym.vector.utils.batch_space(self.single_action_space, num_envs)
+        self.single_action_space.seed(seed)
+        self.action_space.seed(seed)
+
+    def reset(self, *, seed=None, options=None):
+        # envpool is seeded at construction; the reset seed is ignored.
+        obs, info = self.env.reset()
+        return obs[..., None], info
+
+    def step(self, actions):
+        obs, rewards, terminated, truncated, info = self.env.step(np.asarray(actions, dtype=np.int32).reshape(self.num_envs))
+        obs = obs[..., None]
+        done = terminated | truncated
+        if done.any():
+            ids = np.flatnonzero(done).astype(np.int32)
+            info["final_obs"] = obs.copy()
+            reset_obs, reset_info = self.env.reset(ids)
+            obs[reset_info["env_id"]] = reset_obs[..., None]
+        return obs, rewards.astype(np.float32), terminated, truncated, info
+
+    def close(self, **kwargs) -> None:
+        self.env.close() if hasattr(self.env, "close") else None
+
+
+def make_envpool_atari_env(env_name: str, num_envs: int, seed: int, training: bool = True, action_repeat: int = 4, max_episode_steps: int = 108_000) -> EnvPoolAtari:
+    return EnvPoolAtari(env_name, num_envs, seed, training=training, action_repeat=action_repeat, max_episode_steps=max_episode_steps)

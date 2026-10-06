@@ -139,7 +139,7 @@ class Network(nn.Module, Generic[ModelT]):
         torch.save(state, out_file)
 
     def load(self, file: str | Path) -> None:
-        device = next(self.model.parameters()).device
+        device = next(iter(self.model.state_dict().values())).device
         state = torch.load(file, map_location=device)
         self.model.load_state_dict(state["model"])
         

@@ -4,8 +4,8 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from ....buffers.off_policy import Batch, SequenceBatch, compress_n_step
-from ....common import select_actor_observations
+from ....buffers.off_policy import Batch, compress_n_step
+from ....buffers.off_policy.jax_buffer import JaxBuffer
 from ....model.jax import Network, RMS
 from ..config import FastTD3Config
 from .network import Actor, Critic
@@ -16,71 +16,58 @@ def update_rms(network: Network[RMS], observations: jax.Array) -> None:
     network.model.update(observations)
 
 
-def _clip_action(actor: Actor, actions: jax.Array) -> jax.Array:
-    return jnp.clip(actions, actor.policy.action_low.value, actor.policy.action_high.value)
-
-
-def update_critic(
-    critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor],
-    batch: Batch, key: jax.Array, cfg: FastTD3Config,
-) -> dict[str, jax.Array]:
-    actor_next_observations = select_actor_observations(batch.next_observations, cfg.asymmetric_obs, actor.model.obs_dim)
+def update_critic(critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor], batch: Batch, key: jax.Array, cfg: FastTD3Config) -> dict[str, jax.Array]:
+    bins = critic.model.dist.bins
+    # Target policy smoothing + C51 projection of both target heads
     noise = jnp.clip(jax.random.normal(key, batch.actions.shape) * cfg.policy_noise, -cfg.noise_clip, cfg.noise_clip)
-    next_actions = _clip_action(actor.model, actor.model(actor_next_observations) + noise)
-    next_actions = jax.lax.stop_gradient(next_actions)
-    target_logits = jax.lax.stop_gradient(target_critic.model(batch.next_observations, next_actions))
-    continuation = 1.0 - batch.dones
-    target_values = batch.rewards + continuation * batch.discounts * critic.model.dist.bins
+    next_actions = jnp.clip(actor.model(batch.next_observations[..., :actor.model.obs_dim]) + noise, actor.model.policy.action_low.value, actor.model.policy.action_high.value)
+    target_logits = target_critic.model(batch.next_observations, next_actions)                   # [2, B, A]
+    target_values = batch.rewards + batch.discounts * (1.0 - batch.dones) * bins                 # [B, A]
+    target_probs = jax.vmap(critic.model.dist.target_probs, in_axes=(0, None))(target_logits, target_values)
     if cfg.use_cdq:
-        target_logits = critic.model.dist.select_min_logits(target_logits)
-    target_probs = jax.lax.stop_gradient(critic.model.dist.target_probs(target_logits, target_values))
+        # Upstream: project both heads, then keep the distribution with the smaller mean
+        projected_q = (target_probs * bins).sum(-1, keepdims=True)                              # [2, B, 1]
+        target_probs = jnp.broadcast_to(jnp.where(projected_q[0] < projected_q[1], target_probs[0], target_probs[1]), target_probs.shape)
+    target_probs = jax.lax.stop_gradient(target_probs)
 
-    def critic_loss(model: Critic) -> tuple[jax.Array, dict[str, jax.Array]]:
+    def critic_loss(model: Critic) -> tuple[jax.Array, jax.Array]:
         logits = model(batch.observations, batch.actions)
-        target_axes = None if cfg.use_cdq else 0
-        losses = jax.vmap(model.dist._loss_one, in_axes=(0, target_axes))(logits, target_probs)
-        loss = losses.mean()
-        return loss, {"critic/loss": loss, "critic/mean_q": model.dist.q_values(logits).mean()}
+        # Sum over the two heads (qf1_loss + qf2_loss), mean over batch
+        return -(target_probs * jax.nn.log_softmax(logits, -1)).sum(-1).mean(-1).sum(), logits
 
-    (_loss, info), grads = nnx.value_and_grad(critic_loss, has_aux=True)(critic.model)
+    (loss, logits), grads = nnx.value_and_grad(critic_loss, has_aux=True)(critic.model)
     critic.grad_step(grads, cfg.max_grad_norm)
-    return info
+    return {"critic/loss": loss, "critic/mean_q": critic.model.dist.q_values(logits).mean()}
 
 
-def update_actor(
-    actor: Network[Actor], critic: Network[Critic], batch: Batch, cfg: FastTD3Config,
-) -> dict[str, jax.Array]:
-    def actor_loss(model: Actor, critic_model: Critic) -> tuple[jax.Array, dict[str, jax.Array]]:
-        actor_observations = select_actor_observations(batch.observations, cfg.asymmetric_obs, model.obs_dim)
-        actions = model(actor_observations)
-        values = critic_model.q_values(batch.observations, actions)
-        value = jnp.min(values, axis=0) if cfg.use_cdq else values.mean(axis=0)
-        loss = -value.mean()
-        return loss, {"actor/loss": loss, "actor/mean_q": value.mean()}
+def update_actor(actor: Network[Actor], critic: Network[Critic], batch: Batch, cfg: FastTD3Config) -> dict[str, jax.Array]:
+    # critic is passed as an argument (not closed over) so nnx can trace it; grads only w.r.t. argnums=0
+    def actor_loss(model: Actor, critic_model: Critic) -> tuple[jax.Array, jax.Array]:
+        q = critic_model.q_values(batch.observations, model(batch.observations[..., :model.obs_dim]))   # [2, B, 1]
+        q = q.min(0) if cfg.use_cdq else q.mean(0)
+        return -q.mean(), q.mean()
 
-    (_loss, info), actor_grads = nnx.value_and_grad(actor_loss, has_aux=True, argnums=0)(actor.model, critic.model)
-    actor.grad_step(actor_grads, cfg.max_grad_norm)
-    return info
+    (loss, mean_q), grads = nnx.value_and_grad(actor_loss, has_aux=True, argnums=0)(actor.model, critic.model)
+    actor.grad_step(grads, cfg.max_grad_norm)
+    return {"actor/loss": loss, "actor/mean_q": mean_q}
 
 
 def make_update(cfg: FastTD3Config) -> Callable[..., dict[str, jax.Array]]:
     @nnx.jit(static_argnames=("do_actor",))
-    def update(
-        critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor],
-        observation_rms: Network[RMS] | None,
-        sequence: SequenceBatch, key: jax.Array, do_actor: bool,
-    ) -> dict[str, jax.Array]:
-        batch = compress_n_step(sequence, cfg.gamma)
-        if cfg.obs_normalization:
-            batch = batch._replace(
-                observations=observation_rms.model.normalize(batch.observations, update=False),
-                next_observations=observation_rms.model.normalize(batch.next_observations, update=False),
-            )
-        critic_key, _ = jax.random.split(key)
-        critic_info = update_critic(critic, target_critic, actor, batch, critic_key, cfg)
+    def update(critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor], observation_rms: Network[RMS] | None, buffer: JaxBuffer, key: jax.Array, do_actor: bool) -> dict[str, jax.Array]:
+        sample_key, critic_key = jax.random.split(key)
+        # Sample on device, n-step compress, then normalize only the two observation tensors that are used
+        batch = compress_n_step(buffer.sample(sample_key, cfg.batch_size, cfg.n_step), cfg.gamma)
+        batch = batch._replace(observations=batch.observations.astype(jnp.float32), next_observations=batch.next_observations.astype(jnp.float32))
+        if observation_rms is not None:
+            batch = batch._replace(observations=observation_rms.model.normalize(batch.observations, update=False), next_observations=observation_rms.model.normalize(batch.next_observations, update=False))
+        info = update_critic(critic, target_critic, actor, batch, critic_key, cfg)
         if do_actor:
-            critic_info.update(update_actor(actor, critic, batch, cfg))
+            info |= update_actor(actor, critic, batch, cfg)
         target_critic.soft_update()
-        return critic_info
+        return info
 
     return update
+
+
+__all__ = ["make_update", "update_actor", "update_critic", "update_rms"]
