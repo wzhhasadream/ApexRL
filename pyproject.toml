@@ -1,7 +1,7 @@
 [project]
 name = "apexrl"
 version = "0.1.0"
-description = "Add your description here"
+description = "Fast, state-of-the-art reinforcement learning in PyTorch and JAX"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []

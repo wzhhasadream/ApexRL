@@ -87,7 +87,7 @@ class PQNAgent(OnPolicyAgent):
             for group in self.critic.opt.param_groups:
                 group["lr"].fill_(cfg.learning_rate * (1.0 - self._progress))
 
-        last_values = get_value(self.critic, self._observations(last_observations)).reshape(self.num_envs)
+        last_values = get_value(self.critic, self._observations(last_observations)).reshape(self.num_envs).clone()
         self.replay_buffer.compute_returns(last_values, cfg.gamma, cfg.q_lambda)
 
         infos = []

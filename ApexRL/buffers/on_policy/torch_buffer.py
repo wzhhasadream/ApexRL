@@ -93,6 +93,10 @@ class TorchBuffer(BaseBuffer):
         self.returns = torch.empty((rollout_steps, num_envs), dtype=torch.float32, device=self.device)
         self.step = 0
         self.returns_ready = False
+        # Storage is allocated once: static addresses let CUDA graphs (max-autotune) update it in place
+        for name in ("observations", "actions", "actions_mean", "actions_std", "action_logits", "rewards", "dones", "values", "log_probs", "advantages", "returns"):
+            if getattr(self, name) is not None:
+                torch._dynamo.mark_static_address(getattr(self, name))
 
     @property
     def full(self) -> bool:
@@ -146,6 +150,8 @@ class TorchBuffer(BaseBuffer):
         self.step += 1
         self.returns_ready = False
 
+    @torch.no_grad()
+    @torch.compile(mode="max-autotune")
     def compute_returns_and_advantages(
         self,
         last_values: torch.Tensor,
@@ -153,7 +159,8 @@ class TorchBuffer(BaseBuffer):
         gae_lambda: float,
         reward_scale: float | None = None
     ) -> None:
-        """Bootstrap the rollout and compute GAE-Lambda targets."""
+        """Bootstrap the rollout and compute GAE-Lambda targets.
+        """
         if not self.full:
             raise RuntimeError("A complete rollout is required before computing advantages.")
         if not self.store_log_probs:
@@ -172,6 +179,8 @@ class TorchBuffer(BaseBuffer):
         self.returns.copy_(self.advantages + self.values[:-1])
         self.returns_ready = True
 
+    @torch.no_grad()
+    @torch.compile(mode="max-autotune")
     def compute_returns(
         self,
         last_values: torch.Tensor,
@@ -202,6 +211,8 @@ class TorchBuffer(BaseBuffer):
             self.advantages.zero_()
         self.returns_ready = True
 
+    @torch.no_grad()
+    @torch.compile(mode="max-autotune")
     def normalize_advantages(self) -> None:
         if self.advantages is None:
             raise RuntimeError("store_log_probs=True is required for advantage normalization.")
