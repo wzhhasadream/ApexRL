@@ -1,3 +1,5 @@
+# Adapted from amazon-far/holosoma FastSAC (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/amazon-far/holosoma/tree/d18d6cc50f872c15e904a22ceac22313cec955c8/src/holosoma/holosoma/agents/fast_sac
 from copy import deepcopy
 from pathlib import Path
 
@@ -23,8 +25,6 @@ class FastSACAgent(OffPolicyAgent):
         super().__init__(envs, cfg)
         if self.action_is_discrete or len(self.observation_shape) != 1 or len(self.actor_obs_shape) != 1:
             raise ValueError("FastSAC requires continuous actions and flat observations")
-        if not np.all(np.isfinite(self.action_space.low)) or not np.all(np.isfinite(self.action_space.high)):
-            raise ValueError("FastSAC requires finite action bounds")
         self.cfg.target_entropy = -self.action_dim * cfg.target_entropy_ratio
         self._key = jax.random.PRNGKey(cfg.seed)
         self._update_count = 0
@@ -44,7 +44,8 @@ class FastSACAgent(OffPolicyAgent):
         rngs = nnx.Rngs(cfg.seed)
         # epsilon=1e-4 makes rsqrt(var + eps) ~ 1 / (std + 1e-2), the upstream EmpiricalNormalization
         self.observation_rms = Network(RMS(self.observation_shape[0], epsilon=1e-4)) if cfg.obs_normalization else None
-        action_low, action_high = jnp.asarray(self.action_space.low, jnp.float32), jnp.asarray(self.action_space.high, jnp.float32)
+        # Bounds come from BaseAgent: env bounds where finite, [-1, 1] otherwise
+        action_low, action_high = jnp.asarray(self.action_low), jnp.asarray(self.action_high)
         actor_model = Actor(self.actor_obs_shape[0], self.action_dim, rngs.fork(), cfg, action_low, action_high)
         critic_model = Critic(self.observation_shape[0], self.action_dim, rngs.fork(), cfg)
         alpha_model = Alpha(cfg.alpha_init)

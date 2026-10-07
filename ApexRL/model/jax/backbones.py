@@ -447,3 +447,37 @@ class VSimbaVisionEncoder(nnx.Module):
         for block in self.blocks:
             x = block(x)
         return x.reshape(x.shape[0], -1).astype(jnp.float32)
+
+
+# ------------------------------- Nature CNN (Atari) ---------------
+
+
+class NatureCNN(nnx.Module):
+    """Nature DQN encoder (Mnih et al., 2015) for stacked Atari frames.
+
+    Input [B, F, H, W, C] uint8 frames; output [B, hidden_dim] ReLU features.
+    Conv layers use orthogonal(sqrt(2)) init, as in CleanRL.
+    """
+
+    def __init__(self, observation_shape: tuple[int, int, int, int], rngs: nnx.Rngs, hidden_dim: int = 512, compute_type: Dtype = jnp.float32) -> None:
+        frames, height, width, channels = observation_shape
+        self.compute_type = compute_type
+        init = orthogonal(jnp.sqrt(2.0))
+        self.conv1 = nnx.Conv(frames * channels, 32, (8, 8), strides=(4, 4), padding="VALID", kernel_init=init, rngs=rngs, dtype=compute_type)
+        self.conv2 = nnx.Conv(32, 64, (4, 4), strides=(2, 2), padding="VALID", kernel_init=init, rngs=rngs, dtype=compute_type)
+        self.conv3 = nnx.Conv(64, 64, (3, 3), strides=(1, 1), padding="VALID", kernel_init=init, rngs=rngs, dtype=compute_type)
+        flatten_dim = self._convs(jnp.zeros((1, height, width, frames * channels), compute_type)).shape[-1]
+        self.fc = nnx.Linear(flatten_dim, hidden_dim, kernel_init=init, rngs=rngs, dtype=compute_type)
+        self.out_dim = hidden_dim
+
+    def _convs(self, x: jax.Array) -> jax.Array:
+        x = jax.nn.relu(self.conv1(x))
+        x = jax.nn.relu(self.conv2(x))
+        x = jax.nn.relu(self.conv3(x))
+        return x.reshape(x.shape[0], -1)
+
+    def __call__(self, observations: jax.Array) -> jax.Array:
+        # [B, F, H, W, C] uint8 -> channels-last [B, H, W, F * C] float in [0, 1]
+        x = jnp.moveaxis(observations, 1, -2)
+        x = x.reshape((*x.shape[:3], -1)).astype(self.compute_type) / 255.0
+        return jax.nn.relu(self.fc(self._convs(x)))

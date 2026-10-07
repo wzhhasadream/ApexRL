@@ -1,3 +1,5 @@
+# Adapted from younggyoseo/FastTD3 (MIT), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/younggyoseo/FastTD3/tree/229ed59bbf43ea2f7a2d5d90d1076314839944d7
 from __future__ import annotations
 
 import torch
@@ -7,7 +9,7 @@ from .network import Actor
 
 
 @torch.no_grad()
-@torch.compile
+@torch.compile(mode="max-autotune", fullgraph=True)
 def get_eval_action(actor: Network[Actor], observation_rms: Network[RMS] | None, observations: torch.Tensor) -> torch.Tensor:
     if observation_rms is not None:
         observations = observation_rms.model(observations)
@@ -15,7 +17,7 @@ def get_eval_action(actor: Network[Actor], observation_rms: Network[RMS] | None,
 
 
 @torch.no_grad()
-@torch.compile
+@torch.compile(mode="max-autotune", fullgraph=True)
 def get_exploration_action(actor: Network[Actor], observation_rms: Network[RMS] | None, observations: torch.Tensor, noise_scales: torch.Tensor) -> torch.Tensor:
     # noise_scales: [num_envs, 1], fixed per episode (resampled on done), as in upstream FastTD3
     if observation_rms is not None:

@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -546,3 +548,34 @@ class VSimbaVisionEncoder(nn.Module):
         for block in self.blocks:
             x = block(x)
         return x.reshape(x.shape[0], -1)
+
+
+# ------------------------------- Nature CNN (Atari) ---------------
+
+
+class NatureCNN(nn.Module):
+    """Nature DQN encoder (Mnih et al., 2015) for stacked Atari frames.
+
+    Input [B, F, H, W, C] uint8 frames; output [B, hidden_dim] ReLU features.
+    Conv layers use orthogonal(sqrt(2)) init, as in CleanRL.
+    """
+
+    def __init__(self, observation_shape: tuple[int, int, int, int], hidden_dim: int = 512) -> None:
+        super().__init__()
+        frames, height, width, channels = observation_shape
+        in_channels = frames * channels
+        self.convs = nn.Sequential(nn.Conv2d(in_channels, 32, 8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, 3), nn.ReLU(), nn.Flatten())
+        for layer in self.convs:
+            if isinstance(layer, nn.Conv2d):
+                nn.init.orthogonal_(layer.weight, math.sqrt(2))
+                nn.init.zeros_(layer.bias)
+        with torch.no_grad():
+            flatten_dim = self.convs(torch.zeros(1, in_channels, height, width)).shape[-1]
+        self.fc = Linear(flatten_dim, hidden_dim)
+        nn.init.orthogonal_(self.fc.weight, math.sqrt(2))
+        self.out_dim = hidden_dim
+
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        # [B, F, H, W, C] uint8 -> [B, F * C, H, W] float in [0, 1]
+        x = observations.permute(0, 1, 4, 2, 3).flatten(1, 2).float() / 255.0
+        return F.relu(self.fc(self.convs(x)))

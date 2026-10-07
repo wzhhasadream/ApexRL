@@ -1,3 +1,5 @@
+# Adapted from amazon-far/holosoma FastSAC (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/amazon-far/holosoma/tree/d18d6cc50f872c15e904a22ceac22313cec955c8/src/holosoma/holosoma/agents/fast_sac
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -11,7 +13,7 @@ from .network import Actor, Critic
 
 
 @torch.no_grad()
-@torch.compile
+@torch.compile(mode="max-autotune", fullgraph=True)
 def update_rms(rms: Network[RMS], observations: torch.Tensor) -> None:
     rms.model.update(observations)
 
@@ -59,7 +61,7 @@ def update_actor(actor: Network[Actor], critic: Network[Critic], alpha: Network[
 
 
 def make_update(cfg: FastSACConfig) -> Callable[..., dict[str, torch.Tensor]]:
-    @torch.compile
+    @torch.compile(mode="max-autotune")
     def update(critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor], alpha: Network[Alpha], observation_rms: Network[RMS] | None, sequence: SequenceBatch, do_actor: bool) -> dict[str, torch.Tensor]:
         # n-step compress first, then normalize only the two observation tensors that are used
         batch = compress_n_step(sequence, cfg.gamma)

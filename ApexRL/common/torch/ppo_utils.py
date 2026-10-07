@@ -28,17 +28,20 @@ def categorical_kl(
     return (probs_old * (log_probs_old - log_probs_current)).sum(dim=-1, keepdim=True)
 
 
+@torch.no_grad()
 def adapt_lr(
-    lr: float,
+    lr: torch.Tensor,
     kl: torch.Tensor,
     desired_kl: float = 0.01,
     lr_min: float = 1e-5,
     lr_max: float = 1e-2,
     factor: float = 1.5,
-) -> float:
-    kl_value = float(kl.detach())
-    if kl_value > 2.0 * desired_kl:
-        return max(lr / factor, lr_min)
-    if 0.0 < kl_value < 0.5 * desired_kl:
-        return min(lr * factor, lr_max)
-    return lr
+) -> None:
+    """Adapt a tensor learning rate in place from the policy KL (no host sync, no recompile)."""
+    lr.copy_(
+        torch.where(
+            kl > 2.0 * desired_kl,
+            (lr / factor).clamp(min=lr_min),
+            torch.where((kl > 0.0) & (kl < 0.5 * desired_kl), (lr * factor).clamp(max=lr_max), lr),
+        )
+    )

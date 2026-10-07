@@ -1,3 +1,5 @@
+# Adapted from amazon-far/holosoma FastSAC (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/amazon-far/holosoma/tree/d18d6cc50f872c15e904a22ceac22313cec955c8/src/holosoma/holosoma/agents/fast_sac
 from __future__ import annotations
 
 from copy import deepcopy
@@ -24,10 +26,10 @@ class FastSACAgent(OffPolicyAgent):
         super().__init__(envs, cfg)
         if self.action_is_discrete or len(self.observation_shape) != 1 or len(self.actor_obs_shape) != 1:
             raise ValueError("FastSAC requires continuous actions and flat observations")
-        if not np.all(np.isfinite(self.action_space.low)) or not np.all(np.isfinite(self.action_space.high)):
-            raise ValueError("FastSAC requires finite action bounds")
         self.cfg.target_entropy = -self.action_dim * cfg.target_entropy_ratio
         self.device = default_device()
+        # TF32 matmuls (Ampere+): large fp32 speedup, as in upstream FastTD3
+        torch.set_float32_matmul_precision("high")
         self._update_count = 0
         self._obs_cache = (None, None)
         self._init_state()
@@ -39,8 +41,9 @@ class FastSACAgent(OffPolicyAgent):
             self.observation_space, self.action_space, max_size=cfg.buffer_size,
             num_envs=self.num_envs, device=self.device,
         )
-        action_low = torch.as_tensor(self.action_space.low, dtype=torch.float32, device=self.device)
-        action_high = torch.as_tensor(self.action_space.high, dtype=torch.float32, device=self.device)
+        # Bounds come from BaseAgent: env bounds where finite, [-1, 1] otherwise
+        action_low = torch.as_tensor(self.action_low, device=self.device)
+        action_high = torch.as_tensor(self.action_high, device=self.device)
         # epsilon=1e-4 makes rsqrt(var + eps) ~ 1 / (std + 1e-2), the upstream EmpiricalNormalization
         self.observation_rms = Network(RMS(self.observation_shape[0], epsilon=1e-4, device=self.device)) if cfg.obs_normalization else None
         actor_model = Actor(self.actor_obs_shape[0], self.action_dim, cfg, action_low, action_high).to(self.device)
@@ -82,6 +85,8 @@ class FastSACAgent(OffPolicyAgent):
             raise RuntimeError("Replay buffer is not ready for an update")
         sequence = self.replay_buffer.sample(self.cfg.batch_size, self.cfg.n_step)
         self._update_count += 1
+        # max-autotune uses CUDA graphs: mark a new step so the previous step's output buffers can be reused
+        torch.compiler.cudagraph_mark_step_begin()
         info = self._update_fn(self.critic, self.target_critic, self.actor, self.alpha, self.observation_rms, sequence, self._update_count % self.cfg.policy_frequency == 0)
         self.target_critic.soft_update()
         # One device->host sync for all metrics instead of one per metric

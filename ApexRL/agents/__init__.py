@@ -1,6 +1,6 @@
 """Public agent interfaces."""
 
-__all__ = ["JaxExpAgent", "ExpConfig", "JaxRePTAgent", "RePTConfig", "JaxVSimbaAgent", "TorchVSimbaAgent", "VSimbaConfig", "JaxBQNAgent", "BQNConfig", "JaxPQNAgent", "TorchPQNAgent", "PQNConfig", "JaxFastSACAgent", "TorchFastSACAgent", "FastSACConfig", "JaxFastTD3Agent", "TorchFastTD3Agent", "FastTD3Config"]
+__all__ = ["JaxExpAgent", "ExpConfig", "JaxRePTAgent", "RePTConfig", "JaxVSimbaAgent", "TorchVSimbaAgent", "VSimbaConfig", "JaxBQNAgent", "BQNConfig", "JaxPQNAgent", "TorchPQNAgent", "PQNConfig", "JaxFastSACAgent", "TorchFastSACAgent", "FastSACConfig", "JaxFastTD3Agent", "TorchFastTD3Agent", "FastTD3Config", "JaxPPOAgent", "TorchPPOAgent", "PPOConfig"]
 
 
 def __getattr__(name: str):
@@ -68,4 +68,16 @@ def __getattr__(name: str):
         from .fasttd3.config import FastTD3Config
 
         return FastTD3Config
+    if name == "JaxPPOAgent":
+        from .ppo.jax import PPOAgent
+
+        return PPOAgent
+    if name == "TorchPPOAgent":
+        from .ppo.torch import PPOAgent
+
+        return PPOAgent
+    if name == "PPOConfig":
+        from .ppo.config import PPOConfig
+
+        return PPOConfig
     raise AttributeError(name)

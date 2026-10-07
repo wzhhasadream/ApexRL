@@ -1,3 +1,5 @@
+# Adapted from DAVIAN-Robotics/V-Simba (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/DAVIAN-Robotics/V-Simba/tree/be811e968bc02589fbb32f3be79f9a7d9a8fa86d/scale_rl/agents/vsimba
 from copy import deepcopy
 from pathlib import Path
 
@@ -8,7 +10,8 @@ from torch import nn
 
 from ....buffers.off_policy import Transition
 from ....buffers.off_policy.numpy_lazy_frame_buffer import NumpyLazyFrameBuffer
-from ....buffers.off_policy.types import SequenceBatch
+from ....buffers import compress_n_step
+from ....buffers.off_policy.types import Batch
 from ....common.torch import default_device
 from ....model.torch import Alpha, Network, RewardNormalizer, update_reward_normalizer
 from ....model.torch.backbones import VSimbaVisionEncoder
@@ -101,9 +104,14 @@ class VSimbaAgent(OffPolicyAgent):
     def update(self) -> dict[str, float]:
         if not self.can_update:
             raise RuntimeError("Replay buffer is not ready for an update")
-        sequence = self.replay_buffer.sample(self.cfg.batch_size, self.cfg.n_step)
-        sequence = SequenceBatch(*(torch.as_tensor(value, device=self.device) for value in sequence))
-        info = update(self.cfg, self.encoder, self.actor, self.critic, self.target_critic, self.alpha, self.reward_normalizer, sequence)
+        # Compress n-step on the host so only obs/next_obs (not the whole sequence) go to the GPU.
+        batch = compress_n_step(self.replay_buffer.sample(self.cfg.batch_size, self.cfg.n_step), self.cfg.gamma)
+        batch = Batch(*(torch.as_tensor(value, device=self.device) for value in batch))
+        torch.compiler.cudagraph_mark_step_begin()
+        info = update(self.cfg, self.encoder, self.actor, self.critic, self.target_critic, self.alpha, self.reward_normalizer, batch)
+        # Kept outside the compiled update (as in FastSAC/FastTD3): an in-graph in-place
+        # target lerp makes AOTAutograd reuse a freed backward graph on the next call.
+        self.target_critic.soft_update()
         return {name: float(value) for name, value in info.items()}
 
     def save(self, checkpoint_dir: str | Path) -> None:

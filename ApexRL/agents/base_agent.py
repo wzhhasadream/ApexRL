@@ -6,6 +6,7 @@ from gymnasium.vector import VectorEnv
 from typing import Any, NamedTuple, TYPE_CHECKING, TypeAlias
 import numpy as np
 from pathlib import Path
+import warnings
 
 from ..common import is_image_observation
 from ..buffers import PolicyMetadata, RolloutTransition, Transition
@@ -144,8 +145,17 @@ class OffPolicyAgent(BaseAgent):
     def __init__(self, envs: VectorEnv, cfg: Any) -> None:
         super().__init__(envs, cfg)
         if self.action_is_discrete:
+            self.action_low = self.action_high = None
             self.cfg.target_entropy = float(np.log(self.discrete_action_n))
         else:
+            # Off-policy actors squash actions with tanh, so they need finite bounds:
+            # finite env bounds are used as-is, unbounded dimensions fall back to [-1, 1]
+            low = np.asarray(self.action_space.low, dtype=np.float32).reshape(-1)
+            high = np.asarray(self.action_space.high, dtype=np.float32).reshape(-1)
+            if not (np.all(np.isfinite(low)) and np.all(np.isfinite(high))):
+                warnings.warn(f"Action space has non-finite bounds (low={low}, high={high}); using [-1, 1] for those dimensions.")
+            self.action_low = np.where(np.isfinite(low), low, -1.0).astype(np.float32)
+            self.action_high = np.where(np.isfinite(high), high, 1.0).astype(np.float32)
             self.cfg.target_entropy = float(
                 0.5
                 * self.action_dim

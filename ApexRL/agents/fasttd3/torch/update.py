@@ -1,3 +1,5 @@
+# Adapted from younggyoseo/FastTD3 (MIT), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/younggyoseo/FastTD3/tree/229ed59bbf43ea2f7a2d5d90d1076314839944d7
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -11,7 +13,7 @@ from .network import Actor, Critic
 
 
 @torch.no_grad()
-@torch.compile
+@torch.compile(mode="max-autotune", fullgraph=True)
 def update_rms(rms: Network[RMS], observations: torch.Tensor) -> None:
     rms.model.update(observations)
 
@@ -53,7 +55,7 @@ def update_actor(actor: Network[Actor], critic: Network[Critic], batch: Batch, c
 
 
 def make_update(cfg: FastTD3Config) -> Callable[..., dict[str, torch.Tensor]]:
-    @torch.compile
+    @torch.compile(mode="max-autotune")
     def update(critic: Network[Critic], target_critic: Network[Critic], actor: Network[Actor], observation_rms: Network[RMS] | None, sequence: SequenceBatch, do_actor: bool) -> dict[str, torch.Tensor]:
         # n-step compress first, then normalize only the two observation tensors that are used
         batch = compress_n_step(sequence, cfg.gamma)

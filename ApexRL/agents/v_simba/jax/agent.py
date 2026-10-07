@@ -1,3 +1,5 @@
+# Adapted from DAVIAN-Robotics/V-Simba (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/DAVIAN-Robotics/V-Simba/tree/be811e968bc02589fbb32f3be79f9a7d9a8fa86d/scale_rl/agents/vsimba
 from copy import deepcopy
 from pathlib import Path
 
@@ -8,6 +10,7 @@ import optax
 from flax import nnx
 from gymnasium.vector import VectorEnv
 
+from ....buffers import compress_n_step
 from ....buffers.off_policy import Transition
 from ....buffers.off_policy.numpy_lazy_frame_buffer import NumpyLazyFrameBuffer
 from ....model.jax import Alpha, Network, RewardNormalizer
@@ -91,9 +94,10 @@ class VSimbaAgent(OffPolicyAgent):
     def update(self) -> dict[str, float]:
         if not self.can_update:
             raise RuntimeError("Replay buffer is not ready for an update")
-        sequence = jax.tree.map(jnp.asarray, self.replay_buffer.sample(self.cfg.batch_size, self.cfg.n_step))
+        # Compress n-step on the host so only obs/next_obs (not the whole sequence) go to the GPU.
+        batch = jax.tree.map(jnp.asarray, compress_n_step(self.replay_buffer.sample(self.cfg.batch_size, self.cfg.n_step), self.cfg.gamma))
         self._update_key, key = jax.random.split(self._update_key)
-        info = self._update_fn(sequence, key)
+        info = self._update_fn(batch, key)
         return {name: float(value) for name, value in info.items()}
 
     def save(self, checkpoint_dir: str | Path) -> None:

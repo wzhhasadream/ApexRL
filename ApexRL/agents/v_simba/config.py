@@ -1,3 +1,5 @@
+# Adapted from DAVIAN-Robotics/V-Simba (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/DAVIAN-Robotics/V-Simba/tree/be811e968bc02589fbb32f3be79f9a7d9a8fa86d/scale_rl/agents/vsimba
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -35,8 +37,6 @@ class VSimbaConfig:
     temp_target_entropy_coef: float = -0.5
     normalize_rewards: bool = True
     normalized_g_max: float = 5.0
-    nce_coef: float = 1.0
-    reward_coef: float = 1.0
     decay_step: int = 80_000
 
     # Filled by the agent from the environment, not exposed as CLI options.

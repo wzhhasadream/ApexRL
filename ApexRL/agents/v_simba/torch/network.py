@@ -1,8 +1,10 @@
+# Adapted from DAVIAN-Robotics/V-Simba (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/DAVIAN-Robotics/V-Simba/tree/be811e968bc02589fbb32f3be79f9a7d9a8fa86d/scale_rl/agents/vsimba
 import torch
 from torch import nn
 import torch.nn.functional as F
 
-from ....model.torch import Alpha, CategoricalPolicy, Linear
+from ....model.torch import CategoricalPolicy, Linear
 from ....model.torch.backbones import (
     VSimbaEncoder,
     VSimbaProjector,
@@ -119,46 +121,17 @@ class Critic(nn.Module):
         self.encoder = EnsembleVSimbaEncoder(
             num_qs, input_dim + action_embed_dim, num_blocks, hidden_dim
         )
-        self.reward_head = EnsembleLinear(num_qs, input_dim + action_embed_dim, 1)
-        self.p_w = EnsembleLinear(num_qs, input_dim, input_dim + action_embed_dim)
         self.w = EnsembleLinear(num_qs, hidden_dim, num_bins)
         self.dist = CategoricalPolicy(num_bins, min_v, max_v)
-        self.nce_alpha = nn.ModuleList([Alpha(100) for _ in range(num_qs)])
 
-    def _shared_vision(self, vision_z: torch.Tensor) -> torch.Tensor:
-        if vision_z.ndim != 2 or vision_z.shape[-1] != self.p_w.in_features:
-            raise ValueError(
-                f"expected vision_z with shape [B, {self.p_w.in_features}], "
-                f"got {tuple(vision_z.shape)}"
-            )
-        return vision_z.unsqueeze(0).expand(self.num_qs, -1, -1)
-
-    def embed_sa(self, vision_z: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
-        vision_z = self._shared_vision(vision_z)
-        action_z = self.action_embedder(
-            self.projector(actions).unsqueeze(0).expand(self.num_qs, -1, -1)
-        )
-        return torch.cat((vision_z, action_z), dim=-1)
-
-    def forward(
-        self,
-        vision_z: torch.Tensor,
-        actions: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        phi_sa = self.embed_sa(vision_z, actions)
-        z = self.encoder(phi_sa)
-        reward = self.reward_head(phi_sa)
-        logits = self.w(z)
-        return phi_sa, reward, logits
+    def forward(self, vision_z: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        """Return categorical value logits with shape [num_qs, B, num_bins]."""
+        action_z = self.action_embedder(self.projector(actions).unsqueeze(0).expand(self.num_qs, -1, -1))
+        vision_z = vision_z.unsqueeze(0).expand(self.num_qs, -1, -1)
+        return self.w(self.encoder(torch.cat((vision_z, action_z), dim=-1))).float()
 
     def q_values(self, vision_z: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
-        return self.dist.q_values(self(vision_z, actions)[-1])
-
-    def embed_s(self, vision_z: torch.Tensor) -> torch.Tensor:
-        return self.p_w(self._shared_vision(vision_z))
-
-    def get_alpha(self) -> torch.Tensor:
-        return torch.stack([alpha() for alpha in self.nce_alpha])
+        return self.dist.q_values(self(vision_z, actions))
 
 
 __all__ = ["Actor", "Critic", "VSimbaVisionEncoder"]

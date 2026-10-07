@@ -1,4 +1,3 @@
-from sympy import maximum
 from .device import default_device, resolve_device
 from .augment import augment_observations, augment_sequencebatch
 from .ppo_utils import adapt_lr, categorical_kl, diagonal_gaussian_kl

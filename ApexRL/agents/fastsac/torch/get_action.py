@@ -1,3 +1,5 @@
+# Adapted from amazon-far/holosoma FastSAC (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/amazon-far/holosoma/tree/d18d6cc50f872c15e904a22ceac22313cec955c8/src/holosoma/holosoma/agents/fast_sac
 from __future__ import annotations
 
 import torch
@@ -7,7 +9,7 @@ from .network import Actor
 
 
 @torch.no_grad()
-@torch.compile
+@torch.compile(mode="max-autotune", fullgraph=True)
 def get_eval_action(actor: Network[Actor], observation_rms: Network[RMS] | None, observations: torch.Tensor) -> torch.Tensor:
     if observation_rms is not None:
         observations = observation_rms.model(observations)
@@ -15,7 +17,7 @@ def get_eval_action(actor: Network[Actor], observation_rms: Network[RMS] | None,
 
 
 @torch.no_grad()
-@torch.compile
+@torch.compile(mode="max-autotune", fullgraph=True)
 def get_exploration_action(actor: Network[Actor], observation_rms: Network[RMS] | None, observations: torch.Tensor) -> torch.Tensor:
     if observation_rms is not None:
         observations = observation_rms.model(observations)

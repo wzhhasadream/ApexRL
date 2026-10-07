@@ -1,9 +1,11 @@
+# Adapted from DAVIAN-Robotics/V-Simba (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/DAVIAN-Robotics/V-Simba/tree/be811e968bc02589fbb32f3be79f9a7d9a8fa86d/scale_rl/agents/vsimba
 import jax
 import jax.numpy as jnp
 from flax import nnx
 from flax.typing import Dtype
 
-from ....model.jax import CategoricalPolicy, Alpha
+from ....model.jax import CategoricalPolicy
 from ....model.jax.backbones import VSimbaEmbedder, VSimbaEncoder, VSimbaProjector
 from ....model.jax.layer import orthogonal
 from ....model.jax.policy import SquashedTanhGaussianPolicy
@@ -40,27 +42,9 @@ class CriticHead(nnx.Module):
         self.encoder = VSimbaEncoder(input_dim + action_embed_dim, num_blocks, hidden_dim, rngs, compute_type=compute_type)
         self.w = nnx.Linear(hidden_dim, num_bins, rngs=rngs, kernel_init=orthogonal(1), dtype=compute_type)
 
-        self.reward_head = nnx.Linear(action_embed_dim + input_dim, 1, rngs=rngs, dtype=compute_type)
-
-        self.p_w = nnx.Linear(input_dim, input_dim + action_embed_dim, rngs=rngs, dtype=compute_type)
-
-        self.nce_alpha = Alpha(100)
-
-
-    def __call__(self, vision_z: jax.Array, actions: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+    def __call__(self, vision_z: jax.Array, actions: jax.Array) -> jax.Array:
         action_z = self.action_embedder(self.projector(actions))
-        phi_sa = jnp.concatenate([vision_z, action_z], axis=-1)
-        z = self.encoder(phi_sa)
-        reward = self.reward_head(phi_sa)
-        return phi_sa, reward, self.w(z)
-
-    def embed_sa(self, vision_z: jax.Array, actions: jax.Array) -> jax.Array:
-        action_z = self.action_embedder(self.projector(actions))
-        return jnp.concatenate([vision_z, action_z], axis=-1)
-
-    def embed_s(self, vision_z: jax.Array) -> jax.Array:
-        return self.p_w(vision_z)
-
+        return self.w(self.encoder(jnp.concatenate([vision_z, action_z], axis=-1))).astype(jnp.float32)
 
 
 class Critic(nnx.Module):
@@ -77,13 +61,8 @@ class Critic(nnx.Module):
         self.dist = CategoricalPolicy(num_bins, min_v, max_v)
 
     def __call__(self, vision_z: jax.Array, actions: jax.Array) -> jax.Array:
+        """Return categorical value logits with shape [num_qs, B, num_bins]."""
         return nnx.vmap(lambda head, z, a: head(z, a), in_axes=(0, None, None))(self.heads, vision_z, actions)
 
     def q_values(self, vision_z: jax.Array, actions: jax.Array) -> jax.Array:
-        return self.dist.q_values(self(vision_z, actions)[-1])
-
-    def embed_s(self, vision_z: jax.Array) -> jax.Array:
-        return nnx.vmap(lambda head, z: head.embed_s(z), in_axes=(0, None))(self.heads, vision_z)
-
-    def get_alpha(self) -> jax.Array:
-        return self.heads.nce_alpha()
+        return self.dist.q_values(self(vision_z, actions))

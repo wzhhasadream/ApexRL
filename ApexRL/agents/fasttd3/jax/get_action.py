@@ -1,3 +1,5 @@
+# Adapted from younggyoseo/FastTD3 (MIT), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/younggyoseo/FastTD3/tree/229ed59bbf43ea2f7a2d5d90d1076314839944d7
 import jax
 import jax.numpy as jnp
 from flax import nnx

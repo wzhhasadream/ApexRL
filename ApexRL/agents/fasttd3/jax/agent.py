@@ -1,3 +1,5 @@
+# Adapted from younggyoseo/FastTD3 (MIT), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
+# https://github.com/younggyoseo/FastTD3/tree/229ed59bbf43ea2f7a2d5d90d1076314839944d7
 from copy import deepcopy
 from pathlib import Path
 
@@ -23,8 +25,6 @@ class FastTD3Agent(OffPolicyAgent):
         super().__init__(envs, cfg)
         if self.action_is_discrete or len(self.observation_shape) != 1 or len(self.actor_obs_shape) != 1:
             raise ValueError("FastTD3 requires continuous actions and flat observations")
-        if not np.all(np.isfinite(self.action_space.low)) or not np.all(np.isfinite(self.action_space.high)):
-            raise ValueError("FastTD3 requires finite action bounds")
         self._key = jax.random.PRNGKey(cfg.seed)
         self._update_count = 0
         self._num_steps = 0
@@ -43,7 +43,8 @@ class FastTD3Agent(OffPolicyAgent):
         rngs = nnx.Rngs(cfg.seed)
         # epsilon=1e-4 makes rsqrt(var + eps) ~ 1 / (std + 1e-2), the upstream EmpiricalNormalization
         self.observation_rms = Network(RMS(self.observation_shape[0], epsilon=1e-4)) if cfg.obs_normalization else None
-        action_low, action_high = jnp.asarray(self.action_space.low, jnp.float32), jnp.asarray(self.action_space.high, jnp.float32)
+        # Bounds come from BaseAgent: env bounds where finite, [-1, 1] otherwise
+        action_low, action_high = jnp.asarray(self.action_low), jnp.asarray(self.action_high)
         actor_model = Actor(self.actor_obs_shape[0], self.action_dim, rngs.fork(), cfg, action_low, action_high)
         critic_model = Critic(self.observation_shape[0], self.action_dim, rngs.fork(), cfg)
         self.actor = Network(actor_model, nnx.Optimizer(actor_model, optax.adamw(cfg.actor_learning_rate, weight_decay=cfg.weight_decay), wrt=nnx.Param))
