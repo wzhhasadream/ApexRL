@@ -65,13 +65,14 @@ uv pip install -e ".[torch,jax,atari,mujoco]"   # e.g. Atari + MuJoCo with both 
 
 ```bash
 export OMNI_KIT_ACCEPT_EULA=YES   # accept the Isaac Sim EULA non-interactively
-uv pip install -e ".[torch,jax,atari,mujoco,dmc,myosuite,humanoid-bench,metaworld,playground,mjlab,isaaclab,maniskill]"
+uv pip install -e ".[all]"
 ```
 
 </details>
 
 | Extra | Installs | Needed for |
 |---|---|---|
+| `all` | Both backends and every environment extra below | full installation |
 | `torch` / `jax` | PyTorch 2.9 / JAX 0.6 + Flax NNX, Optax, Orbax | the PyTorch / JAX agents |
 | `atari` | ALE, envpool | `env_type="atari"` |
 | `mujoco`, `dmc`, `myosuite`, `humanoid-bench`, `metaworld` | CPU MuJoCo-based suites | the matching `env_type` |
@@ -105,8 +106,8 @@ runner = OnPolicyRunner(
 runner.run()
 ```
 
-For continuous control, use `OffPolicyRunner`. The same runner works with FastTD3, FastSAC, WarpSAC,
-and V-Simba; pass the config's `num_train_env` to `create_envs`.
+For continuous control, use `OffPolicyRunner`. FastTD3, FastSAC, and WarpSAC use the config's
+`num_train_env` as the training environment count.
 
 ```python
 from ApexRL.agents.warpsac.config import WarpSACConfig
@@ -128,6 +129,35 @@ runner.run()
 
 PPO accepts unbounded continuous actions. Off-policy agents use finite action bounds and fall back to
 `[-1, 1]` for unbounded dimensions.
+
+V-Simba trains on rendered observations from CPU simulators. It uses `OffPolicyRunner` with one training
+environment and continuous actions rescaled to `[-1, 1]`:
+
+Install the `jax` and `dmc` extras for this example. On headless machines, set `MUJOCO_GL=egl` before launching Python.
+
+```python
+from ApexRL.agents.v_simba.config import VSimbaConfig
+from ApexRL.agents.v_simba.jax import VSimbaAgent  # or: from ApexRL.agents.v_simba.torch import VSimbaAgent
+from ApexRL.envs import create_envs
+from ApexRL.runners import EnvironmentConfig, OffPolicyRunner, OffPolicyRunnerConfig
+
+cfg = VSimbaConfig.from_env("dmc", "cheetah-run-visual", seed=1)
+train_envs, eval_envs, record_envs = create_envs(
+    "cheetah-run-visual", "dmc", cfg.seed, num_train_envs=1, rescale_action=True,
+    action_repeat=cfg.action_repeat, max_episode_steps=cfg.max_episode_steps,
+)
+agent = VSimbaAgent(train_envs, cfg)
+runner = OffPolicyRunner(
+    train_envs=train_envs, eval_envs=eval_envs, record_envs=record_envs, agent=agent,
+    env_cfg=EnvironmentConfig(env_type="dmc", seed=cfg.seed, eval_episode=10),
+    run_cfg=OffPolicyRunnerConfig(total_timesteps=cfg.total_timesteps, grad_step_per_interaction_step=cfg.grad_step_per_interaction_step),
+    results_dir="Results", project="ApexRL", run_name="vsimba-cheetah-run",
+)
+runner.run()
+```
+
+The defaults collect 500,000 transitions with `action_repeat=2`, corresponding to up to 1,000,000 simulator
+steps. Pass `cfg.action_repeat` and `cfg.max_episode_steps` to `create_envs` to match the config.
 
 ## Environment presets
 
@@ -156,6 +186,19 @@ gymnasium `VectorEnv`s.
 |---|---|
 | **CPU simulators** | `atari`, `mujoco`, `dmc`, `myosuite`, `humanoid_bench`, `metaworld` |
 | **GPU simulators** | `playground`, `isaaclab`, `maniskill`, `mjlab` |
+
+For single-task CPU environments in `mujoco`, `dmc`, `myosuite`, `humanoid_bench`, and `metaworld`, append
+`-visual` to `env_name` to use pixels. The constructor strips the suffix, enables `rgb_array` rendering,
+replaces state observations with RGB images, and stacks three frames as `[3, H, W, 3]`.
+
+| Suite | State observations | Visual observations |
+|---|---|---|
+| DMC | `cheetah-run` | `cheetah-run-visual` |
+| MuJoCo | `HalfCheetah-v5` | `HalfCheetah-v5-visual` |
+
+These DMC and MuJoCo examples produce observations shaped `[num_envs, 3, 84, 84, 3]` with dtype `uint8`.
+The suffix is handled by `create_envs`, independently of `Config.from_env`. Atari and GPU simulators
+use their own observation setup.
 
 Atari training and evaluation run on [envpool](https://github.com/sail-sg/envpool) with the purejaxql settings:
 life-loss episodes and reward clipping during training only, no sticky actions, up to 30 no-ops on reset, and

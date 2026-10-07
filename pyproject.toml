@@ -44,6 +44,7 @@ playground = ["playground==0.0.5", "brax==0.14.2", "mujoco==3.5.0", "mujoco-mjx=
 mjlab = ["mjlab==1.2.0", "mujoco==3.5.0", "mujoco-warp==3.5.0", "warp-lang==1.12.1", "torchvision==0.24.0"]  # torchvision: via rsl-rl-lib
 maniskill = ["mani-skill @ git+https://github.com/haosulab/ManiSkill.git@aad75f23da42c0cf30e220bde896d62eb7581e97"]
 isaaclab = ["isaacsim[all,extscache]==5.1.0", "isaaclab[isaacsim]==2.3.0", "torchvision==0.24.0", "torchaudio==2.9.0"]
+all = ["apexrl[torch,jax,atari,mujoco,dmc,myosuite,humanoid-bench,metaworld,playground,mjlab,isaaclab,maniskill]"]
 
 [build-system]
 requires = ["setuptools>=64"]
