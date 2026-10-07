@@ -29,7 +29,7 @@ def update_critic(critic: Network[Critic], target_critic: Network[Critic], actor
         target_values = batch.rewards + batch.discounts * (1.0 - batch.dones) * bins            # [B, A]
         target_probs = torch.vmap(critic.model.dist.target_probs, in_dims=(0, None))(target_logits, target_values)
         if cfg.use_cdq:
-            # Upstream: project both heads, then keep the distribution with the smaller mean
+            # FastTD3 projects both heads, then keeps the distribution with the smaller mean.
             projected_q = (target_probs * bins).sum(-1, keepdim=True)                          # [2, B, 1]
             target_probs = torch.where(projected_q[0] < projected_q[1], target_probs[0], target_probs[1]).expand(2, -1, -1)
 

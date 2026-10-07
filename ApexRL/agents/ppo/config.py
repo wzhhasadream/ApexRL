@@ -2,14 +2,16 @@
 # https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool.py
 # https://github.com/leggedrobotics/rsl_rl/blob/main/rsl_rl/algorithms/ppo.py
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, ClassVar, Literal
+
+from ..base_config import BaseConfig
 
 
 @dataclass
-class PPOConfig:
-    """PPO defaults for massively parallel continuous control (rsl_rl style).
+class PPOConfig(BaseConfig):
+    """PPO. Dataclass defaults are rsl_rl-style massively parallel continuous control.
 
-    Use ``PPOConfig.atari()`` for the CleanRL Atari setting (discrete actions, Nature CNN).
+    ``PPOConfig.from_env(env_type, env_name, **overrides)`` applies the presets below, then the overrides.
     """
 
     seed: int = 1
@@ -43,11 +45,12 @@ class PPOConfig:
     asymmetric_obs: bool = field(init=False, default=False)
     image_obs: bool = field(init=False, default=False)
 
-    @classmethod
-    def atari(cls, **kwargs) -> "PPOConfig":
+    ENV_TYPE_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {
         # CleanRL ppo_atari_envpool.py
-        defaults = dict(total_timesteps=10_000_000, num_envs=8, rollout_steps=128, lr=2.5e-4, anneal_lr=True, desired_kl=None, num_epochs=4, num_mini_batches=4, clip_coef=0.1, value_coef=0.5, entropy_coef=0.01, max_grad_norm=0.5, activation="relu")
-        return cls(**{**defaults, **kwargs})
+        "atari": dict(total_timesteps=10_000_000, num_envs=8, rollout_steps=128, lr=2.5e-4, anneal_lr=True, desired_kl=None, num_epochs=4, num_mini_batches=4, clip_coef=0.1, value_coef=0.5, entropy_coef=0.01, max_grad_norm=0.5, activation="relu"),
+        "cpu_sim": dict(total_timesteps=4_000_000, num_envs=1, rollout_steps=2_048, num_mini_batches=32, num_epochs=10, compute_type="float32"),
+        "gpu_sim": dict(total_timesteps=100_000_000, num_envs=4_096, rollout_steps=24, num_mini_batches=4, num_epochs=5, compute_type="bfloat16"),
+    }
 
 
 __all__ = ["PPOConfig"]

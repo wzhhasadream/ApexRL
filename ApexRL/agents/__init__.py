@@ -1,17 +1,9 @@
 """Public agent interfaces."""
 
-__all__ = ["JaxExpAgent", "ExpConfig", "JaxRePTAgent", "RePTConfig", "JaxVSimbaAgent", "TorchVSimbaAgent", "VSimbaConfig", "JaxBQNAgent", "BQNConfig", "JaxPQNAgent", "TorchPQNAgent", "PQNConfig", "JaxFastSACAgent", "TorchFastSACAgent", "FastSACConfig", "JaxFastTD3Agent", "TorchFastTD3Agent", "FastTD3Config", "JaxPPOAgent", "TorchPPOAgent", "PPOConfig"]
+__all__ = ["JaxVSimbaAgent", "TorchVSimbaAgent", "VSimbaConfig", "JaxPQNAgent", "TorchPQNAgent", "PQNConfig", "JaxFastSACAgent", "TorchFastSACAgent", "FastSACConfig", "JaxFastTD3Agent", "TorchFastTD3Agent", "FastTD3Config", "JaxPPOAgent", "TorchPPOAgent", "PPOConfig", "JaxWarpSACAgent", "TorchWarpSACAgent", "WarpSACConfig"]
 
 
 def __getattr__(name: str):
-    if name == "JaxRePTAgent":
-        from .rept.jax import RePTAgent
-
-        return RePTAgent
-    if name == "RePTConfig":
-        from .rept.config import RePTConfig
-
-        return RePTConfig
     if name == "JaxVSimbaAgent":
         from .v_simba.jax import VSimbaAgent
 
@@ -24,14 +16,6 @@ def __getattr__(name: str):
         from .v_simba.config import VSimbaConfig
 
         return VSimbaConfig
-    if name == "JaxBQNAgent":
-        from .bqn.jax import BQNAgent
-
-        return BQNAgent
-    if name == "BQNConfig":
-        from .bqn.config import BQNConfig
-
-        return BQNConfig
     if name == "JaxPQNAgent":
         from .pqn.jax import PQNAgent
 
@@ -80,4 +64,16 @@ def __getattr__(name: str):
         from .ppo.config import PPOConfig
 
         return PPOConfig
+    if name == "JaxWarpSACAgent":
+        from .warpsac.jax import WarpSACAgent
+
+        return WarpSACAgent
+    if name == "TorchWarpSACAgent":
+        from .warpsac.torch import WarpSACAgent
+
+        return WarpSACAgent
+    if name == "WarpSACConfig":
+        from .warpsac.config import WarpSACConfig
+
+        return WarpSACConfig
     raise AttributeError(name)

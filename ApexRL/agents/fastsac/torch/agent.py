@@ -28,7 +28,7 @@ class FastSACAgent(OffPolicyAgent):
             raise ValueError("FastSAC requires continuous actions and flat observations")
         self.cfg.target_entropy = -self.action_dim * cfg.target_entropy_ratio
         self.device = default_device()
-        # TF32 matmuls (Ampere+): large fp32 speedup, as in upstream FastTD3
+        # TF32 matmuls (Ampere+): large fp32 speedup, as in FastTD3
         torch.set_float32_matmul_precision("high")
         self._update_count = 0
         self._obs_cache = (None, None)
@@ -44,7 +44,7 @@ class FastSACAgent(OffPolicyAgent):
         # Bounds come from BaseAgent: env bounds where finite, [-1, 1] otherwise
         action_low = torch.as_tensor(self.action_low, device=self.device)
         action_high = torch.as_tensor(self.action_high, device=self.device)
-        # epsilon=1e-4 makes rsqrt(var + eps) ~ 1 / (std + 1e-2), the upstream EmpiricalNormalization
+        # epsilon=1e-4 matches Holosoma's EmpiricalNormalization scale.
         self.observation_rms = Network(RMS(self.observation_shape[0], epsilon=1e-4, device=self.device)) if cfg.obs_normalization else None
         actor_model = Actor(self.actor_obs_shape[0], self.action_dim, cfg, action_low, action_high).to(self.device)
         critic_model = Critic(self.observation_shape[0], self.action_dim, cfg).to(self.device)

@@ -12,7 +12,7 @@ from ..config import FastTD3Config
 
 
 def torch_default_init_(layer: nnx.Linear, rngs: nnx.Rngs) -> None:
-    # Upstream uses torch nn.Linear default init: uniform(+-1/sqrt(fan_in)) for weight and bias
+    # FastTD3 uses torch nn.Linear's default uniform init for weight and bias.
     bound = 1.0 / math.sqrt(layer.in_features)
     layer.kernel.value = jax.random.uniform(rngs.params(), layer.kernel.value.shape, minval=-bound, maxval=bound)
     layer.bias.value = jax.random.uniform(rngs.params(), layer.bias.value.shape, minval=-bound, maxval=bound)

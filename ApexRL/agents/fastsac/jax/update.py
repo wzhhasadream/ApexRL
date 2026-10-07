@@ -28,12 +28,12 @@ def update_critic(critic: Network[Critic], target_critic: Network[Critic], actor
 
     def critic_loss(model: Critic) -> tuple[jax.Array, jax.Array]:
         logits = model(batch.observations, batch.actions)
-        # Sum over Q heads, mean over batch (upstream: critic_losses.mean(dim=1).sum(dim=0))
+        # Holosoma sums over Q heads after averaging each head over the batch.
         return -(target_probs * jax.nn.log_softmax(logits, -1)).sum(-1).mean(-1).sum(), logits
 
     (loss, logits), grads = nnx.value_and_grad(critic_loss, has_aux=True)(critic.model)
     critic.grad_step(grads, cfg.max_grad_norm)
-    # next_log_probs is returned so update_alpha can reuse it (as upstream)
+    # Holosoma reuses next_log_probs in update_alpha.
     return {"critic/loss": loss, "critic/mean_q": critic.model.dist.q_values(logits).mean()}, next_log_probs
 
 

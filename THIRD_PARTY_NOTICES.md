@@ -2,20 +2,20 @@
 
 ApexRL is released under the MIT License (see `LICENSE`). The components below
 are adapted from third-party projects and remain under their original licenses.
-Each adapted source file starts with a header naming its upstream project. The full upstream license texts are
+Each adapted source file starts with a header naming its source project. The source projects' license texts are
 reproduced at the end of this file.
 
-| Component | Upstream | License | Full text |
+| Component | Source project | License | Full text |
 |---|---|---|---|
 | `ApexRL/agents/pqn/` | [mttga/purejaxql](https://github.com/mttga/purejaxql) @ `47af6d7` | Apache-2.0, Copyright 2024 Matteo Gallici | [License texts](#license-texts) |
-| `ApexRL/agents/fasttd3/` | [younggyoseo/FastTD3](https://github.com/younggyoseo/FastTD3) @ `229ed59` | MIT, Copyright (c) 2025 Younggyo Seo (the upstream LICENSE also bundles notices for LeanRL, TD3, and others) | [License texts](#license-texts) |
+| `ApexRL/agents/fasttd3/` | [younggyoseo/FastTD3](https://github.com/younggyoseo/FastTD3) @ `229ed59` | MIT, Copyright (c) 2025 Younggyo Seo (the FastTD3 LICENSE also bundles notices for LeanRL, TD3, and others) | [License texts](#license-texts) |
 | `ApexRL/agents/fastsac/` | [amazon-far/holosoma](https://github.com/amazon-far/holosoma/tree/d18d6cc50f872c15e904a22ceac22313cec955c8/src/holosoma/holosoma/agents/fast_sac) @ `d18d6cc` | Apache-2.0, Copyright Amazon.com, Inc. or its affiliates | [License texts](#license-texts) |
 | `ApexRL/agents/v_simba/` | [DAVIAN-Robotics/V-Simba](https://github.com/DAVIAN-Robotics/V-Simba/tree/be811e968bc02589fbb32f3be79f9a7d9a8fa86d/scale_rl/agents/vsimba) @ `be811e9` | Apache-2.0 | [License texts](#license-texts) |
 | `ApexRL/agents/ppo/` | [vwxyzjn/cleanrl](https://github.com/vwxyzjn/cleanrl) (Atari setting) and [leggedrobotics/rsl_rl](https://github.com/leggedrobotics/rsl_rl) (continuous-control setting) | MIT, Copyright (c) 2019 CleanRL developers; BSD-3-Clause, Copyright (c) 2026 ETH Zurich, NVIDIA CORPORATION & AFFILIATES | [License texts](#license-texts) |
 
 ## Modifications
 
-All components above have been modified from the upstream code (each modified file
+All components above have been modified from the listed source projects (each modified file
 says so in its header). Changes include re-implementation in PyTorch and JAX/Flax NNX,
 integration with the ApexRL agent/buffer/runner interfaces, and performance
 changes such as `torch.compile`, envpool-based Atari environments, and
@@ -28,8 +28,8 @@ on-device rollout buffers.
 Copyright notices of the Apache-2.0 components:
 
 - PQN (mttga/purejaxql): Copyright 2024 Matteo Gallici
-- FastSAC (amazon-far/holosoma), from the upstream `NOTICE` file: Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-- V-Simba (DAVIAN-Robotics/V-Simba): the upstream LICENSE contains no separate copyright line
+- FastSAC (amazon-far/holosoma), from Holosoma's `NOTICE` file: Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- V-Simba (DAVIAN-Robotics/V-Simba): the V-Simba LICENSE contains no separate copyright line
 
 ```
 Apache License
@@ -235,7 +235,7 @@ Apache License
    limitations under the License.
 ```
 
-### FastTD3 (MIT, with the notices bundled in the upstream LICENSE)
+### FastTD3 (MIT, with the notices bundled in the FastTD3 LICENSE)
 
 ```
 This software is part of the BAIR Commons HIC Repository as of calendar year 2025.

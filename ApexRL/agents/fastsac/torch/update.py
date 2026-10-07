@@ -30,12 +30,12 @@ def update_critic(critic: Network[Critic], target_critic: Network[Critic], actor
 
     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp):
         logits = critic.model(batch.observations, batch.actions)
-    # Sum over Q heads, mean over batch (upstream: critic_losses.mean(dim=1).sum(dim=0))
+    # Holosoma sums over Q heads after averaging each head over the batch.
     loss = -(target_probs * logits.log_softmax(-1)).sum(-1).mean(-1).sum()
     critic.opt.zero_grad(set_to_none=True)
     loss.backward()
     critic.grad_step(cfg.max_grad_norm)
-    # next_log_probs is returned so update_alpha can reuse it (as upstream)
+    # Holosoma reuses next_log_probs in update_alpha.
     return {"critic/loss": loss.detach(), "critic/mean_q": critic.model.dist.q_values(logits.detach()).mean()}, next_log_probs
 
 

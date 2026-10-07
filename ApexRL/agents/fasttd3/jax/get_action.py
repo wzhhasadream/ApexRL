@@ -17,7 +17,7 @@ def get_eval_action(actor: Network[Actor], observation_rms: Network[RMS] | None,
 
 @nnx.jit
 def get_exploration_action(actor: Network[Actor], observation_rms: Network[RMS] | None, observations: jax.Array, noise_scales: jax.Array, key: jax.Array) -> jax.Array:
-    # noise_scales: [num_envs, 1], fixed per episode (resampled on done), as in upstream FastTD3
+    # noise_scales: [num_envs, 1], fixed per episode as in FastTD3
     if observation_rms is not None:
         observations = observation_rms.model.normalize(observations, update=False)
     actions = actor.model(observations[..., :actor.model.obs_dim])

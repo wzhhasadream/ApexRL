@@ -1,15 +1,17 @@
 # Adapted from younggyoseo/FastTD3 (MIT), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
 # https://github.com/younggyoseo/FastTD3/tree/229ed59bbf43ea2f7a2d5d90d1076314839944d7
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, ClassVar, Literal
+
+from ..base_config import BaseConfig
 
 
 @dataclass
-class FastTD3Config:
+class FastTD3Config(BaseConfig):
     seed: int = 1
     num_train_env: int = 128
     num_learning_iterations: int = 150_000
-    # ApexRL counts total transitions; the upstream value counts vector steps.
+    # ApexRL counts total transitions; FastTD3 counts vector steps.
     total_timesteps: int | None = None
     grad_step_per_interaction_step: float = 2.0
     buffer_size: int | None = None
@@ -42,6 +44,11 @@ class FastTD3Config:
     action_is_discrete: bool = field(init=False, default=False)
     asymmetric_obs: bool = field(init=False, default=False)
     image_obs: bool = field(init=False, default=False)
+
+    ENV_TYPE_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {
+        "playground": dict(num_train_env=1024, gamma=0.97, v_min=-10.0, v_max=10.0),
+        "isaaclab": dict(num_train_env=4096, v_min=-10.0, v_max=10.0, num_atoms=251, std_max=0.4),
+    }
 
     def __post_init__(self) -> None:
         if self.num_train_env < 1 or self.num_learning_iterations < 1:

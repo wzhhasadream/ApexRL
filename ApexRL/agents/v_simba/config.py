@@ -1,11 +1,13 @@
 # Adapted from DAVIAN-Robotics/V-Simba (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
 # https://github.com/DAVIAN-Robotics/V-Simba/tree/be811e968bc02589fbb32f3be79f9a7d9a8fa86d/scale_rl/agents/vsimba
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, ClassVar, Literal
+
+from ..base_config import BaseConfig
 
 
 @dataclass
-class VSimbaConfig:
+class VSimbaConfig(BaseConfig):
     seed: int = 1
     total_timesteps: int = 500_000
     grad_step_per_interaction_step: float = 1.0
@@ -45,6 +47,9 @@ class VSimbaConfig:
     asymmetric_obs: bool = field(init=False, default=False)
     image_obs: bool = field(init=False, default=False)
     target_entropy: float = field(init=False, default=0.0)
+
+    ENV_TYPE_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {
+    }
 
     def __post_init__(self):
         if self.gamma is None:

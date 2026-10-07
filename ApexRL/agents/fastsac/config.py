@@ -1,11 +1,13 @@
 # Adapted from amazon-far/holosoma FastSAC (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
 # https://github.com/amazon-far/holosoma/tree/d18d6cc50f872c15e904a22ceac22313cec955c8/src/holosoma/holosoma/agents/fast_sac
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, ClassVar, Literal
+
+from ..base_config import BaseConfig
 
 
 @dataclass
-class FastSACConfig:
+class FastSACConfig(BaseConfig):
     seed: int = 1
     num_train_env: int = 4096
     num_learning_iterations: int = 50_000
@@ -46,6 +48,11 @@ class FastSACConfig:
     asymmetric_obs: bool = field(init=False, default=False)
     image_obs: bool = field(init=False, default=False)
     target_entropy: float = field(init=False, default=0.0)
+
+    ENV_TYPE_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {
+        "playground": dict(num_train_env=1024, gamma=0.97),
+        "isaaclab": dict(num_train_env=4096),
+    }
 
     def __post_init__(self) -> None:
         if self.num_train_env < 1 or self.num_learning_iterations < 1:

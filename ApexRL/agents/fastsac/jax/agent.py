@@ -42,7 +42,7 @@ class FastSACAgent(OffPolicyAgent):
         # On-device replay buffer: sampling happens inside the jitted update, no host->device copy
         self.replay_buffer = JaxBuffer.create(self.observation_space, self.action_space, max_size=cfg.buffer_size, num_envs=self.num_envs, device=jax.devices()[0])
         rngs = nnx.Rngs(cfg.seed)
-        # epsilon=1e-4 makes rsqrt(var + eps) ~ 1 / (std + 1e-2), the upstream EmpiricalNormalization
+        # epsilon=1e-4 matches Holosoma's EmpiricalNormalization scale.
         self.observation_rms = Network(RMS(self.observation_shape[0], epsilon=1e-4)) if cfg.obs_normalization else None
         # Bounds come from BaseAgent: env bounds where finite, [-1, 1] otherwise
         action_low, action_high = jnp.asarray(self.action_low), jnp.asarray(self.action_high)
@@ -52,7 +52,7 @@ class FastSACAgent(OffPolicyAgent):
         self.actor = Network(actor_model, nnx.Optimizer(actor_model, optax.adamw(cfg.actor_learning_rate, weight_decay=cfg.weight_decay), wrt=nnx.Param), forward_name="get_mean_action")
         self.critic = Network(critic_model, nnx.Optimizer(critic_model, optax.adamw(cfg.critic_learning_rate, weight_decay=cfg.weight_decay), wrt=nnx.Param))
         self.target_critic = Network(deepcopy(critic_model), source_model=critic_model, tau=cfg.tau)
-        # Upstream alpha optimizer: AdamW(betas=(0.9, 0.95)) with torch default weight_decay=0.01
+        # Holosoma's alpha optimizer uses AdamW(betas=(0.9, 0.95), weight_decay=0.01).
         self.alpha = Network(alpha_model, nnx.Optimizer(alpha_model, optax.adamw(cfg.alpha_learning_rate, b1=0.9, b2=0.95, weight_decay=0.01), wrt=nnx.Param))
 
     def _init_cached_fn(self) -> None:

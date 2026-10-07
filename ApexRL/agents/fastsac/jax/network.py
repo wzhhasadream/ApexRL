@@ -21,7 +21,7 @@ class Actor(nnx.Module):
         self.log_std = nnx.Linear(dims[-1], action_dim, rngs=rngs, kernel_init=nnx.initializers.zeros, dtype=dtype)
         for layer in self.trunk.layers:
             torch_default_init_(layer, rngs)
-        # log_std is tanh-squashed into [log_std_min, log_std_max] in both cases (upstream)
+        # Holosoma tanh-squashes log_std into this range for both policy choices.
         self.policy = SquashedTanhGaussianPolicy(action_low, action_high, cfg.log_std_min, cfg.log_std_max) if cfg.use_tanh else GaussianPolicy(cfg.log_std_min, cfg.log_std_max, squash_log_std=True)
 
     def __call__(self, observations: jax.Array) -> tuple[jax.Array, jax.Array]:

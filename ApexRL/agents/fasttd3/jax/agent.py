@@ -41,7 +41,7 @@ class FastTD3Agent(OffPolicyAgent):
         # On-device replay buffer: sampling happens inside the jitted update, no host->device copy
         self.replay_buffer = JaxBuffer.create(self.observation_space, self.action_space, max_size=cfg.buffer_size, num_envs=self.num_envs, device=jax.devices()[0])
         rngs = nnx.Rngs(cfg.seed)
-        # epsilon=1e-4 makes rsqrt(var + eps) ~ 1 / (std + 1e-2), the upstream EmpiricalNormalization
+        # epsilon=1e-4 matches FastTD3's EmpiricalNormalization scale.
         self.observation_rms = Network(RMS(self.observation_shape[0], epsilon=1e-4)) if cfg.obs_normalization else None
         # Bounds come from BaseAgent: env bounds where finite, [-1, 1] otherwise
         action_low, action_high = jnp.asarray(self.action_low), jnp.asarray(self.action_high)
@@ -50,7 +50,7 @@ class FastTD3Agent(OffPolicyAgent):
         self.actor = Network(actor_model, nnx.Optimizer(actor_model, optax.adamw(cfg.actor_learning_rate, weight_decay=cfg.weight_decay), wrt=nnx.Param))
         self.critic = Network(critic_model, nnx.Optimizer(critic_model, optax.adamw(cfg.critic_learning_rate, weight_decay=cfg.weight_decay), wrt=nnx.Param))
         self.target_critic = Network(deepcopy(critic_model), source_model=critic_model, tau=cfg.tau)
-        # Per-env exploration std, resampled only when that env's episode ends (upstream FastTD3)
+        # FastTD3 resamples each environment's exploration std at episode end.
         self.noise_scales = self._sample_noise_scales()
 
     def _sample_noise_scales(self) -> jax.Array:

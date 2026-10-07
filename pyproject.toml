@@ -3,5 +3,89 @@ name = "apexrl"
 version = "0.1.0"
 description = "Fast, state-of-the-art reinforcement learning in PyTorch and JAX"
 readme = "README.md"
-requires-python = ">=3.11"
-dependencies = []
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "numpy==1.26.0",
+    "gymnasium==1.2.0",
+    "tyro==1.0.15",
+    "tqdm==4.67.1",
+    "imageio==2.37.2",
+    "imageio-ffmpeg==0.6.0",
+    "opencv-python==4.11.0.86",
+    "onnx==1.18.0",
+    "onnxscript==0.7.1",
+    "onnxruntime==1.27.0",
+]
+
+[project.optional-dependencies]
+jax = [
+    "jax[cuda12]==0.6.0",
+    "flax==0.10.7",
+    "optax==0.2.5",
+    "orbax-checkpoint==0.11.30",
+    "tensorflow-probability==0.25.0",
+    "jax2onnx==0.8.1",
+]
+# ApexRL itself only needs torch; torchvision / torchaudio are listed in the extras whose packages require them
+torch = ["torch==2.9.0"]
+atari = ["gymnasium[atari]==1.2.0", "ale-py==0.12.1", "envpool==0.8.4"]
+mujoco = ["mujoco==3.5.0"]
+dmc = ["dm-control==1.0.31", "mujoco==3.5.0", "shimmy==2.0.1", "termcolor==3.3.0"]
+myosuite = [
+    "myosuite @ git+https://github.com/DAVIAN-Robotics/myosuite@fe390bc995ac1bdb338ecf87b7c0e83f3be186de",
+    "dm-control==1.0.31",
+    "mujoco==3.5.0",
+    "shimmy==2.0.1",
+    "GitPython==3.1.50",
+]
+humanoid-bench = ["humanoid-bench @ git+https://github.com/wzhhasadream/humanoid-bench-compatible.git@d198f7b49cf889d86e41fdcba6b174e6b235fd12"]
+metaworld = ["metaworld==3.1.1", "mujoco==3.5.0"]
+playground = ["playground==0.0.5", "brax==0.14.2", "mujoco==3.5.0", "mujoco-mjx==3.5.0", "mujoco-warp==3.5.0", "warp-lang==1.12.1"]
+mjlab = ["mjlab==1.2.0", "mujoco==3.5.0", "mujoco-warp==3.5.0", "warp-lang==1.12.1", "torchvision==0.24.0"]  # torchvision: via rsl-rl-lib
+maniskill = ["mani-skill @ git+https://github.com/haosulab/ManiSkill.git@aad75f23da42c0cf30e220bde896d62eb7581e97"]
+isaaclab = ["isaacsim[all,extscache]==5.1.0", "isaaclab[isaacsim]==2.3.0", "torchvision==0.24.0", "torchaudio==2.9.0"]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ApexRL*"]
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+# Isaac Sim, MetaWorld, mjviser, and Isaac Lab pin conflicting versions; these choices were tested in jax_rl:
+#   isaacsim 5.1 pins torch==2.7.0 and old pillow / psutil / typing_extensions / websockets / trimesh / imageio,
+#   metaworld pins mujoco==3.3.0, mjviser (via mjlab) wants mujoco>=3.6, isaaclab extras want rsl-rl-lib==3.0.1 (mjlab needs 5.0.1)
+override-dependencies = [
+    "rsl-rl-lib==5.0.1",
+    "torch==2.9.0",
+    "torchaudio==2.9.0",
+    "torchvision==0.24.0",
+    "mujoco==3.5.0",
+    "imageio==2.37.2",
+    "pillow==12.3.0",
+    "psutil==7.2.2",
+    "typing-extensions==4.15.0",
+    "websockets==16.1",
+    "trimesh==4.12.2",
+]
+
+[tool.uv.extra-build-dependencies]
+# flatdict (pulled in by isaaclab) imports pkg_resources at build time, removed in setuptools>=81
+flatdict = ["setuptools==80.9.0"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+# Isaac Sim / Isaac Lab wheels
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"

@@ -26,7 +26,7 @@ class Actor(nn.Module):
         for layer in (self.mean, self.log_std):
             nn.init.zeros_(layer.weight)
             nn.init.zeros_(layer.bias)
-        # log_std is tanh-squashed into [log_std_min, log_std_max] in both cases (upstream)
+        # Holosoma tanh-squashes log_std into this range for both policy choices.
         self.policy = SquashedTanhGaussianPolicy(action_low, action_high, cfg.log_std_min, cfg.log_std_max) if cfg.use_tanh else GaussianPolicy(cfg.log_std_min, cfg.log_std_max, squash_log_std=True)
 
     def forward(self, observations: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

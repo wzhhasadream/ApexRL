@@ -1,11 +1,13 @@
 # Adapted from mttga/purejaxql PQN (Apache-2.0), modified for ApexRL; see THIRD_PARTY_NOTICES.md.
 # https://github.com/mttga/purejaxql/blob/47af6d7b35c89ddfe633aaf7341bdb8964cb7cce/purejaxql/pqn_atari.py
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, ClassVar, Literal
+
+from ..base_config import BaseConfig
 
 
 @dataclass
-class PQNConfig:
+class PQNConfig(BaseConfig):
     """PQN defaults for vectorized Atari rollouts."""
 
     seed: int = 1
