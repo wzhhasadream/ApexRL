@@ -38,7 +38,7 @@ class FastTD3Agent(OffPolicyAgent):
         torch.manual_seed(cfg.seed)
         self.replay_buffer = TorchBuffer(
             self.observation_space, self.action_space, max_size=cfg.buffer_size,
-            num_envs=self.num_envs, device=self.device,
+            num_envs=self.num_train_env, device=self.device,
         )
         # Bounds come from BaseAgent: env bounds where finite, [-1, 1] otherwise
         action_low = torch.as_tensor(self.action_low, device=self.device)
@@ -56,7 +56,7 @@ class FastTD3Agent(OffPolicyAgent):
         self._update_fn = make_update(cfg)
 
     def _sample_noise_scales(self) -> torch.Tensor:
-        return torch.rand((self.num_envs, 1), device=self.device) * (self.cfg.std_max - self.cfg.std_min) + self.cfg.std_min
+        return torch.rand((self.num_train_env, 1), device=self.device) * (self.cfg.std_max - self.cfg.std_min) + self.cfg.std_min
 
     def _observations(self, observations: np.ndarray | torch.Tensor) -> torch.Tensor:
         return torch.as_tensor(observations, dtype=torch.float32, device=self.device).reshape((-1, self.observation_shape[0]))

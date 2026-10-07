@@ -9,6 +9,7 @@ from ..base_config import BaseConfig
 @dataclass
 class VSimbaConfig(BaseConfig):
     seed: int = 1
+    num_train_env: int = 1
     total_timesteps: int = 500_000
     grad_step_per_interaction_step: float = 1.0
     buffer_size: int = 1_000_000

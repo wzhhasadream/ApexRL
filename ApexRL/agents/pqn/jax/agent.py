@@ -44,7 +44,7 @@ class PQNAgent(OnPolicyAgent):
         compute_type = getattr(jnp, cfg.compute_type)
         num_rollouts = max(
             1,
-            cfg.total_timesteps // (self.num_envs * cfg.rollout_steps),
+            cfg.total_timesteps // (self.num_train_env * cfg.rollout_steps),
         )
         num_updates = num_rollouts * cfg.num_minibatches * cfg.update_epochs
         self.epsilon_schedule = optax.linear_schedule(cfg.start_e, cfg.end_e, num_rollouts)
@@ -73,7 +73,7 @@ class PQNAgent(OnPolicyAgent):
         nnx.update(self.critic, jax.device_put(state, self.learner_device))
         self.replay_buffer = JaxBuffer.create(
             cfg.rollout_steps,
-            self.num_envs,
+            self.num_train_env,
             self.observation_space,
             self.action_space,
             store_log_probs=False,

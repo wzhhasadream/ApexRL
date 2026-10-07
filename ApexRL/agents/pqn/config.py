@@ -12,7 +12,7 @@ class PQNConfig(BaseConfig):
 
     seed: int = 1
     total_timesteps: int = int(5e7)
-    num_envs: int = 128
+    num_train_env: int = 128
     rollout_steps: int = 32
     learning_rate: float = 2.5e-4
     anneal_lr: bool = True

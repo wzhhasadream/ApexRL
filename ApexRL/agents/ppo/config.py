@@ -16,7 +16,7 @@ class PPOConfig(BaseConfig):
 
     seed: int = 1
     total_timesteps: int = 100_000_000
-    num_envs: int = 4096
+    num_train_env: int = 4096
     rollout_steps: int = 24
     lr: float = 1e-3
     anneal_lr: bool = False             # linear decay to 0 over training
@@ -47,9 +47,9 @@ class PPOConfig(BaseConfig):
 
     ENV_TYPE_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {
         # CleanRL ppo_atari_envpool.py
-        "atari": dict(total_timesteps=10_000_000, num_envs=8, rollout_steps=128, lr=2.5e-4, anneal_lr=True, desired_kl=None, num_epochs=4, num_mini_batches=4, clip_coef=0.1, value_coef=0.5, entropy_coef=0.01, max_grad_norm=0.5, activation="relu"),
-        "cpu_sim": dict(total_timesteps=4_000_000, num_envs=1, rollout_steps=2_048, num_mini_batches=32, num_epochs=10, compute_type="float32"),
-        "gpu_sim": dict(total_timesteps=100_000_000, num_envs=4_096, rollout_steps=24, num_mini_batches=4, num_epochs=5, compute_type="bfloat16"),
+        "atari": dict(total_timesteps=10_000_000, num_train_env=8, rollout_steps=128, lr=2.5e-4, anneal_lr=True, desired_kl=None, num_epochs=4, num_mini_batches=4, clip_coef=0.1, value_coef=0.5, entropy_coef=0.01, max_grad_norm=0.5, activation="relu"),
+        "cpu_sim": dict(total_timesteps=4_000_000, num_train_env=1, rollout_steps=2_048, num_mini_batches=32, num_epochs=10, compute_type="float32"),
+        "gpu_sim": dict(total_timesteps=100_000_000, num_train_env=4_096, rollout_steps=24, num_mini_batches=4, num_epochs=5, compute_type="bfloat16"),
     }
 
 

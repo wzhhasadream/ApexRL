@@ -19,7 +19,7 @@ def get_eval_action(actor: Network[Actor], observation_rms: Network[RMS] | None,
 @torch.no_grad()
 @torch.compile(mode="max-autotune", fullgraph=True)
 def get_exploration_action(actor: Network[Actor], observation_rms: Network[RMS] | None, observations: torch.Tensor, noise_scales: torch.Tensor) -> torch.Tensor:
-    # noise_scales: [num_envs, 1], fixed per episode as in FastTD3
+    # noise_scales: [num_train_env, 1], fixed per episode as in FastTD3
     if observation_rms is not None:
         observations = observation_rms.model(observations)
     actions = actor.model(observations[..., :actor.model.obs_dim])

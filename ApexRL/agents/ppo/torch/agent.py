@@ -29,7 +29,7 @@ class PPOAgent(OnPolicyAgent):
         self.device = default_device()
         # TF32 matmuls (Ampere+): large fp32 speedup
         torch.set_float32_matmul_precision("high")
-        self._num_rollouts = max(1, cfg.total_timesteps // (self.num_envs * cfg.rollout_steps))
+        self._num_rollouts = max(1, cfg.total_timesteps // (self.num_train_env * cfg.rollout_steps))
         self._rollout_idx = 0
         self._last_obs, self._last_obs_device = None, None
         self._init_state()
@@ -47,7 +47,7 @@ class PPOAgent(OnPolicyAgent):
         # Tensor lr: adapted / annealed in place on device without host syncs or recompiles
         optimizer = torch.optim.Adam(model.parameters(), lr=torch.tensor(cfg.lr, device=self.device), fused=True)
         self.agent = Network(model, optimizer)
-        self.replay_buffer = TorchBuffer(cfg.rollout_steps, self.observation_space, self.action_space, self.num_envs, device=self.device)
+        self.replay_buffer = TorchBuffer(cfg.rollout_steps, self.observation_space, self.action_space, self.num_train_env, device=self.device)
 
     def _observations(self, observations: np.ndarray | torch.Tensor) -> torch.Tensor:
         # Images stay uint8 on transfer (4x smaller); the CNN casts on device

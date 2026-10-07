@@ -38,7 +38,7 @@ class VSimbaAgent(OffPolicyAgent):
         compute_type = getattr(jnp, cfg.compute_type)
         self.replay_buffer = NumpyLazyFrameBuffer(
             self.observation_space, self.action_space, max_size=cfg.buffer_size,
-            linear_decay_step=self.cfg.decay_step, max_n_step=cfg.n_step, num_envs=self.num_envs,
+            linear_decay_step=self.cfg.decay_step, max_n_step=cfg.n_step, num_envs=self.num_train_env,
         )
         encoder = VSimbaVisionEncoder(
             self.observation_shape, rngs.fork(), num_channels=cfg.encoder_num_channels,
@@ -61,7 +61,7 @@ class VSimbaAgent(OffPolicyAgent):
         self.target_critic = Network(deepcopy(critic))
         self.reward_normalizer = None
         if cfg.normalize_rewards:
-            normalizer = RewardNormalizer(self.num_envs, cfg.gamma, cfg.normalized_g_max)
+            normalizer = RewardNormalizer(self.num_train_env, cfg.gamma, cfg.normalized_g_max)
             normalizer.g_rms.count.value = jnp.asarray(1e-4, dtype=jnp.float32)
             self.reward_normalizer = Network(normalizer)
 

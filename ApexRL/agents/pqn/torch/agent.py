@@ -37,10 +37,10 @@ class PQNAgent(OnPolicyAgent):
         self.critic = Network(model, optimizer, forward_name="select_action")
         self.replay_buffer = TorchBuffer(
             cfg.rollout_steps, self.observation_space, self.action_space,
-            num_envs=self.num_envs, store_log_probs=False, store_metadata=False,
+            num_envs=self.num_train_env, store_log_probs=False, store_metadata=False,
             device=self.device,
         )
-        self._num_rollouts = max(1, cfg.total_timesteps // (self.num_envs * cfg.rollout_steps))
+        self._num_rollouts = max(1, cfg.total_timesteps // (self.num_train_env * cfg.rollout_steps))
         self._epsilon = torch.tensor(cfg.start_e, device=self.device)
         self._pinned_obs: torch.Tensor | None = None
         self._last_obs, self._last_obs_device = None, None
@@ -87,7 +87,7 @@ class PQNAgent(OnPolicyAgent):
             for group in self.critic.opt.param_groups:
                 group["lr"].fill_(cfg.learning_rate * (1.0 - self._progress))
 
-        last_values = get_value(self.critic, self._observations(last_observations)).reshape(self.num_envs).clone()
+        last_values = get_value(self.critic, self._observations(last_observations)).reshape(self.num_train_env).clone()
         self.replay_buffer.compute_returns(last_values, cfg.gamma, cfg.q_lambda)
 
         infos = []

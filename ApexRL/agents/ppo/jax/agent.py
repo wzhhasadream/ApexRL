@@ -31,7 +31,7 @@ class PPOAgent(OnPolicyAgent):
         super().__init__(envs, cfg)
         self.device = default_device()
         self._action_key, self._update_key = jax.random.split(jax.random.PRNGKey(cfg.seed))
-        self._num_rollouts = max(1, cfg.total_timesteps // (self.num_envs * cfg.rollout_steps))
+        self._num_rollouts = max(1, cfg.total_timesteps // (self.num_train_env * cfg.rollout_steps))
         self._rollout_idx = 0
         self._last_obs, self._last_obs_device = None, None
         self._init_state()
@@ -50,7 +50,7 @@ class PPOAgent(OnPolicyAgent):
         self.agent = Network(model, nnx.Optimizer(model, optax.inject_hyperparams(optax.adam)(learning_rate=cfg.lr), wrt=nnx.Param), forward_name="get_mean_action")
         # Commit params/opt state to the device up front; otherwise every jitted fn compiles twice
         nnx.update(self.agent, jax.device_put(nnx.state(self.agent), self.device))
-        self.replay_buffer = JaxBuffer.create(cfg.rollout_steps, self.num_envs, self.observation_space, self.action_space, device=self.device)
+        self.replay_buffer = JaxBuffer.create(cfg.rollout_steps, self.num_train_env, self.observation_space, self.action_space, device=self.device)
 
     def _init_cached_fn(self) -> None:
         self._sample_and_value_fn = nnx.cached_partial(sample_and_value, self.agent, self.asymmetric_obs)

@@ -1,10 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 96" width="400" height="96" role="img" aria-label="ApexRL">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 192" width="760" height="192" role="img" aria-label="ApexRL">
+  <title>ApexRL</title>
   <defs>
-    <linearGradient id="peak" x1="10" y1="86" x2="86" y2="12" gradientUnits="userSpaceOnUse">
+    <linearGradient id="peak" x1="28" y1="164" x2="164" y2="28" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#6366F1"/>
       <stop offset="1" stop-color="#22D3EE"/>
     </linearGradient>
-    <linearGradient id="curve" x1="33" y1="72" x2="54" y2="52" gradientUnits="userSpaceOnUse">
+    <linearGradient id="curve" x1="64" y1="141" x2="112" y2="102" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#FBBF24"/>
       <stop offset="1" stop-color="#FB7185"/>
     </linearGradient>
@@ -14,9 +15,9 @@
     </linearGradient>
   </defs>
   <!-- Mark: the apex (also an "A") with a rising learning curve inside -->
-  <path d="M14 84 L48 14 L82 84" fill="none" stroke="url(#peak)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M33 72 C 39 72, 41 62, 45.5 61 S 51 55.5, 54 52" fill="none" stroke="url(#curve)" stroke-width="6" stroke-linecap="round"/>
-  <circle cx="54" cy="52" r="5.5" fill="#FB7185"/>
+  <path d="M28 164 L96 28 L164 164" fill="none" stroke="url(#peak)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M64 141 C76 141, 80 122, 89 120 S104 109, 112 102" fill="none" stroke="url(#curve)" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="112" cy="102" r="8.5" fill="#FB7185"/>
   <!-- Wordmark -->
-  <text x="108" y="72" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="66" font-weight="800" letter-spacing="-1.5" fill="#F1F5F9">Apex<tspan fill="url(#word)">RL</tspan></text>
+  <text x="208" y="151" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="140" font-weight="800" letter-spacing="-3" fill="#F1F5F9">Apex<tspan fill="url(#word)">RL</tspan></text>
 </svg>

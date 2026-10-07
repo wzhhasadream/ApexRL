@@ -31,7 +31,7 @@ wrappers, and training runners, so you can switch backends by changing one impor
 - **Data stays on the GPU.** Rollout and replay buffers live on device, observations are uploaded once per step,
   and image observations are stored as `uint8`.
 - **Massively parallel environments.** GPU simulators (MuJoCo Playground, IsaacLab, ManiSkill, mjlab) and
-  envpool-backed Atari (C++ thread pool, no per-env subprocesses).
+  envpool-backed Atari.
 - **Faithful to the original papers.** Defaults follow the upstream implementations, and each adapted file names its source.
 
 ## Algorithms
@@ -40,12 +40,15 @@ wrappers, and training runners, so you can switch backends by changing one impor
 | Algorithm   | Type                                                                                        | Action space                               | PyTorch | JAX | Reference                                                                                                                 |
 | ----------- | ------------------------------------------------------------------------------------------- | ------------------------------------------ | ------- | --- | ------------------------------------------------------------------------------------------------------------------------- |
 | **PPO**     | On-policy actor-critic (clipped / SPO objective, GAE, KL-adaptive lr)                       | Continuous & discrete (incl. Atari pixels) | ✓       | ✓   | [Schulman et al., 2017](https://arxiv.org/abs/1707.06347); SPO: [Xie et al., ICML 2025](https://arxiv.org/abs/2401.16025) |
-| **PQN**     | On-policy Q-learning (λ-returns, no replay / target net)                                    | Discrete                                   | ✓       | ✓   | [Gallici et al., ICLR 2025](https://arxiv.org/abs/2407.04811)                                                             |
+| **PQN**     | Online Q-learning (λ-returns, no replay / target net)                                       | Discrete                                   | ✓       | ✓   | [Gallici et al., ICLR 2025](https://arxiv.org/abs/2407.04811)                                                             |
 | **FastTD3** | Off-policy actor-critic (distributional TD3, massively parallel envs)                       | Continuous                                 | ✓       | ✓   | [Seo et al., 2025](https://arxiv.org/abs/2505.22642)                                                                      |
 | **FastSAC** | Off-policy actor-critic (SAC tuned for massively parallel envs)                             | Continuous                                 | ✓       | ✓   | [Seo et al., 2025](https://arxiv.org/abs/2512.01996)                                                                      |
 | **WarpSAC** | Off-policy actor-critic (replay decay, repeated exploration actions, distributional critic) | Continuous                                 | ✓       | ✓   | [Wu et al., 2026](https://arxiv.org/abs/2608.24479); [original implementation](https://github.com/wzhhasadream/warprl)    |
 | **V-Simba** | Off-policy visual actor-critic (ConvNeXt-style encoder + Simba MLPs, categorical critic)    | Continuous (pixels)                        | ✓       | ✓   | [Kim et al., RLJ 2026](https://github.com/DAVIAN-Robotics/V-Simba)                                                        |
 
+PQN uses `OnPolicyRunner` in ApexRL: collect a fresh rollout, update the Q-network with λ-returns,
+then clear the rollout buffer. It has no experience replay or target network. Its Q-learning targets
+are off-policy; the runner groups algorithms by their data collection and update loop.
 
 
 
@@ -91,6 +94,8 @@ the choices in `[tool.uv] override-dependencies` apply only when installing with
 
 ## Quick start
 
+PPO and PQN use `OnPolicyRunner`. FastTD3, FastSAC, WarpSAC, and V-Simba use `OffPolicyRunner`.
+
 Create the config, environments, and agent, then pass them to a runner. This PPO example uses the Atari preset,
 with one shared Nature CNN for actor and critic and gradient clipping over the complete actor-critic model:
 
@@ -102,7 +107,7 @@ from ApexRL.runners import EnvironmentConfig, OnPolicyRunner, OnPolicyRunnerConf
 
 cfg = PPOConfig.from_env("atari", "Breakout-v5", seed=1)
 train_envs, eval_envs, record_envs = create_envs(
-    "Breakout-v5", "atari", cfg.seed, num_train_envs=cfg.num_envs, num_eval_envs=8, clip_action=False
+    "Breakout-v5", "atari", cfg.seed, num_train_envs=cfg.num_train_env, num_eval_envs=8, clip_action=False
 )
 agent = PPOAgent(train_envs, cfg)
 runner = OnPolicyRunner(
@@ -114,8 +119,8 @@ runner = OnPolicyRunner(
 runner.run()
 ```
 
-For continuous control, use `OffPolicyRunner`. FastTD3, FastSAC, and WarpSAC use the config's
-`num_train_env` as the training environment count.
+All agent configs expose `num_train_env`. Pass it to
+`create_envs(num_train_envs=...)` to set the training environment count, as in this WarpSAC example:
 
 ```python
 from ApexRL.agents.warpsac.config import WarpSACConfig
@@ -152,7 +157,7 @@ from ApexRL.runners import EnvironmentConfig, OffPolicyRunner, OffPolicyRunnerCo
 
 cfg = VSimbaConfig.from_env("dmc", "cheetah-run-visual", seed=1)
 train_envs, eval_envs, record_envs = create_envs(
-    "cheetah-run-visual", "dmc", cfg.seed, num_train_envs=1，
+    "cheetah-run-visual", "dmc", cfg.seed, num_train_envs=cfg.num_train_env,
     action_repeat=cfg.action_repeat, max_episode_steps=cfg.max_episode_steps,
 )
 agent = VSimbaAgent(train_envs, cfg)

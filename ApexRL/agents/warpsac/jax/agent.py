@@ -70,7 +70,7 @@ class WarpSACAgent(OffPolicyAgent):
         self,
     ) :
         compute_type = getattr(jnp, self.cfg.compute_type)
-        num_critic_updates = max(1, int(self.cfg.total_timesteps / self.num_envs * self.cfg.grad_step_per_interaction_step))
+        num_critic_updates = max(1, int(self.cfg.total_timesteps / self.num_train_env * self.cfg.grad_step_per_interaction_step))
         end_lr = self.cfg.end_lr
         policy_lr = self.cfg.policy_lr
         q_lr = self.cfg.q_lr
@@ -79,7 +79,7 @@ class WarpSACAgent(OffPolicyAgent):
         self.replay_buffer = JaxBuffer.create(
             action_space=self.action_space,
             observation_space=self.observation_space,
-            num_envs=self.num_envs,
+            num_envs=self.num_train_env,
             max_size=self.cfg.buffer_size,
             linear_decay_step=self.cfg.decay_step,
             use_approximate_sampling=self.cfg.buffer_device == "cpu",
@@ -149,7 +149,7 @@ class WarpSACAgent(OffPolicyAgent):
             tau=self.cfg.tau,
         )
         self.reward_normalizer = (
-            Network(RewardNormalizer(self.num_envs, self.cfg.gamma))
+            Network(RewardNormalizer(self.num_train_env, self.cfg.gamma))
             if self.cfg.normalize_rewards
             else None
         )
@@ -193,7 +193,7 @@ class WarpSACAgent(OffPolicyAgent):
 
     @property
     def can_update(self) -> bool:
-        return min(self._num_steps, self.replay_buffer.capacity) * self.num_envs >= self.cfg.learning_starts and self._num_steps >= self.cfg.n_step
+        return min(self._num_steps, self.replay_buffer.capacity) * self.num_train_env >= self.cfg.learning_starts and self._num_steps >= self.cfg.n_step
 
     def update(self) -> dict[str, float]:
         if not self.can_update:

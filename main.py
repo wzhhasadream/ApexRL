@@ -10,7 +10,7 @@ from ApexRL.runners.types import EnvironmentConfig
 parser = argparse.ArgumentParser(description="Train PQN on Atari.")
 parser.add_argument("--env", default="Pong-v5", help="Atari environment name, for example Pong or ALE/Pong-v5.")
 parser.add_argument("--seed", type=int, default=1)
-parser.add_argument("--num-envs", type=int, default=128)
+parser.add_argument("--num-train-env", type=int, default=128)
 parser.add_argument("--total-timesteps", type=int, default=None)
 parser.add_argument("--rollout-steps", type=int, default=None)
 parser.add_argument("--num-eval", type=int, default=20)
@@ -24,7 +24,7 @@ parser.add_argument("--save-agent", action="store_true")
 parser.add_argument("--save-onnx", action="store_true")
 args = parser.parse_args()
 
-cfg = PQNConfig.from_env("atari", args.env, seed=args.seed, num_envs=args.num_envs)
+cfg = PQNConfig.from_env("atari", args.env, seed=args.seed, num_train_env=args.num_train_env)
 if args.total_timesteps is not None:
     cfg.total_timesteps = args.total_timesteps
 if args.rollout_steps is not None:
@@ -34,7 +34,7 @@ train_envs, eval_envs, record_envs = create_envs(
     env_name=args.env,
     env_type="atari",
     seed=args.seed,
-    num_train_envs=cfg.num_envs,
+    num_train_envs=cfg.num_train_env,
     num_eval_envs=50,
     num_record_envs=1,
     action_repeat=4,

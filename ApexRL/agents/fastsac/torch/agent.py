@@ -39,7 +39,7 @@ class FastSACAgent(OffPolicyAgent):
         torch.manual_seed(cfg.seed)
         self.replay_buffer = TorchBuffer(
             self.observation_space, self.action_space, max_size=cfg.buffer_size,
-            num_envs=self.num_envs, device=self.device,
+            num_envs=self.num_train_env, device=self.device,
         )
         # Bounds come from BaseAgent: env bounds where finite, [-1, 1] otherwise
         action_low = torch.as_tensor(self.action_low, device=self.device)

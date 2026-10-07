@@ -35,18 +35,18 @@ class WarpSACAgent(OffPolicyAgent):
         self._update_fn = update_warpsac
         self.repeat_count = torch.tensor(0, device=self.learner_device)
         self.repeat_n = torch.tensor(0, device=self.learner_device)
-        self.cached_noise = torch.randn((self.num_envs, self.action_dim), device=self.learner_device)
+        self.cached_noise = torch.randn((self.num_train_env, self.action_dim), device=self.learner_device)
         self.critic_grad_updates = 0
         self._obs_cache = (None, None)
 
     def _init_train_state(self) -> None:
-        num_updates = max(1, int(self.cfg.total_timesteps / self.num_envs * self.cfg.grad_step_per_interaction_step))
+        num_updates = max(1, int(self.cfg.total_timesteps / self.num_train_env * self.cfg.grad_step_per_interaction_step))
         self.replay_buffer = TorchBuffer(
             observation_space=self.observation_space,
             action_space=self.action_space,
             max_size=self.cfg.buffer_size,
             linear_decay_step=self.cfg.decay_step,
-            num_envs=self.num_envs,
+            num_envs=self.num_train_env,
             use_approximate_sampling=self.cfg.buffer_device == "cpu",
             device=self.cfg.buffer_device,
         )
@@ -116,7 +116,7 @@ class WarpSACAgent(OffPolicyAgent):
             target_critic_model, source_model=critic_model, tau=self.cfg.tau
         )
         self.reward_normalizer = (
-            Network(RewardNormalizer(self.num_envs, self.cfg.gamma, device=self.learner_device))
+            Network(RewardNormalizer(self.num_train_env, self.cfg.gamma, device=self.learner_device))
             if self.cfg.normalize_rewards
             else None
         )
@@ -138,7 +138,7 @@ class WarpSACAgent(OffPolicyAgent):
         obs = self._observations(observations)
         # Reuse this device copy when the runner stores the same observation.
         self._obs_cache = (observations, obs)
-        noise = torch.randn((self.num_envs, self.action_dim), device=self.learner_device)
+        noise = torch.randn((self.num_train_env, self.action_dim), device=self.learner_device)
         cached_noise, actions, repeat_n, repeat_count = get_exploration_action(
             self.actor,
             self.asymmetric_obs,

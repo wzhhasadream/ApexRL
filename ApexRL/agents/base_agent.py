@@ -27,7 +27,7 @@ class BaseAgent(ABC):
         self.cfg = cfg
         self.observation_space = envs.single_observation_space
         self.action_space = envs.single_action_space
-        self.num_envs = envs.num_envs
+        self.num_train_env = envs.num_envs
         self.observation_shape = tuple(self.observation_space.shape)
         self.continuous_action_dim = int(
             np.prod(np.asarray(self.action_space.shape))

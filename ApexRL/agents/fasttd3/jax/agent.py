@@ -39,7 +39,7 @@ class FastTD3Agent(OffPolicyAgent):
     def _init_state(self) -> None:
         cfg = self.cfg
         # On-device replay buffer: sampling happens inside the jitted update, no host->device copy
-        self.replay_buffer = JaxBuffer.create(self.observation_space, self.action_space, max_size=cfg.buffer_size, num_envs=self.num_envs, device=jax.devices()[0])
+        self.replay_buffer = JaxBuffer.create(self.observation_space, self.action_space, max_size=cfg.buffer_size, num_envs=self.num_train_env, device=jax.devices()[0])
         rngs = nnx.Rngs(cfg.seed)
         # epsilon=1e-4 matches FastTD3's EmpiricalNormalization scale.
         self.observation_rms = Network(RMS(self.observation_shape[0], epsilon=1e-4)) if cfg.obs_normalization else None
@@ -54,7 +54,7 @@ class FastTD3Agent(OffPolicyAgent):
         self.noise_scales = self._sample_noise_scales()
 
     def _sample_noise_scales(self) -> jax.Array:
-        return jax.random.uniform(self._next_key(), (self.num_envs, 1), minval=self.cfg.std_min, maxval=self.cfg.std_max)
+        return jax.random.uniform(self._next_key(), (self.num_train_env, 1), minval=self.cfg.std_min, maxval=self.cfg.std_max)
 
     def _init_cached_fn(self) -> None:
         self._get_eval_fn = nnx.cached_partial(get_eval_action, self.actor, self.observation_rms)
@@ -85,7 +85,7 @@ class FastTD3Agent(OffPolicyAgent):
     @property
     def can_update(self) -> bool:
         # Track size on host to avoid a device sync every step
-        return min(self._num_steps, self.replay_buffer.capacity) * self.num_envs >= self.cfg.learning_starts and self._num_steps >= self.cfg.n_step
+        return min(self._num_steps, self.replay_buffer.capacity) * self.num_train_env >= self.cfg.learning_starts and self._num_steps >= self.cfg.n_step
 
     def update(self) -> dict[str, float]:
         if not self.can_update:

@@ -34,7 +34,7 @@ class VSimbaAgent(OffPolicyAgent):
         torch.manual_seed(cfg.seed)
         self.replay_buffer = NumpyLazyFrameBuffer(
             self.observation_space, self.action_space, max_size=cfg.buffer_size,
-            linear_decay_step=cfg.decay_step, max_n_step=cfg.n_step, num_envs=self.num_envs,
+            linear_decay_step=cfg.decay_step, max_n_step=cfg.n_step, num_envs=self.num_train_env,
         )
         encoder_model = VSimbaVisionEncoder(
             self.observation_shape, num_channels=cfg.encoder_num_channels,
@@ -71,7 +71,7 @@ class VSimbaAgent(OffPolicyAgent):
         self.reward_normalizer = None
         if cfg.normalize_rewards:
             normalizer = RewardNormalizer(
-                self.num_envs, cfg.gamma, cfg.normalized_g_max, device=self.device,
+                self.num_train_env, cfg.gamma, cfg.normalized_g_max, device=self.device,
             )
             normalizer.g_rms.count.fill_(1e-4)
             self.reward_normalizer = Network(normalizer)
