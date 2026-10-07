@@ -2,24 +2,25 @@
 # https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool.py
 # https://github.com/leggedrobotics/rsl_rl/blob/main/rsl_rl/algorithms/ppo.py
 import torch
-from torch import nn
 
 from ....buffers.on_policy.torch_buffer import TorchBuffer
 from ....buffers.on_policy.types import RolloutBatch
 from ....common import select_actor_observations
 from ....model.torch import Network
 from ..config import PPOConfig
-from .network import ActorCritic
+from .network_atari import ActorCritic as AtariActorCritic
+from .network_state import ActorCritic
 from ....common.torch import adapt_lr, categorical_kl, diagonal_gaussian_kl
 from .get_action import get_value
 from torch.utils._pytree import tree_map
 
-def ppo_loss(agent: Network[ActorCritic], batch: RolloutBatch, cfg: PPOConfig) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    actor, critic = agent.model.actor, agent.model.critic
+def ppo_loss(agent: Network[ActorCritic | AtariActorCritic], batch: RolloutBatch, cfg: PPOConfig) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    actor = agent.model.actor
     actor_obs = select_actor_observations(batch.observations, cfg.asymmetric_obs, actor.obs_dim)
     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=cfg.compute_type == "bfloat16"):
-        _, new_log_probs, entropy, metadata = actor.get_action(actor_obs, update_rms=False, actions=batch.actions)
-        values = critic(batch.observations, update_rms=False)
+        _, new_log_probs, entropy, metadata, values = agent.model.get_action_and_value(
+            actor_obs, batch.observations, update_rms=False, actions=batch.actions,
+        )
     ratio = torch.exp(new_log_probs - batch.old_log_probs)
 
     if cfg.algo == "ppo":
@@ -50,20 +51,18 @@ def ppo_loss(agent: Network[ActorCritic], batch: RolloutBatch, cfg: PPOConfig) -
     return loss, info
 
 @torch.compile(mode="max-autotune")
-def update_ppo_minibatch(agent: Network[ActorCritic], batch: RolloutBatch, cfg: PPOConfig) -> dict[str, torch.Tensor]:
+def update_ppo_minibatch(agent: Network[ActorCritic | AtariActorCritic], batch: RolloutBatch, cfg: PPOConfig) -> dict[str, torch.Tensor]:
     loss, info = ppo_loss(agent, batch, cfg)
     if cfg.desired_kl is not None:
         for group in agent.opt.param_groups:
             adapt_lr(group["lr"], info["training/kl"], cfg.desired_kl)
     agent.opt.zero_grad(set_to_none=True)
     loss.backward()
-    nn.utils.clip_grad_norm_(agent.model.actor.parameters(), cfg.max_grad_norm)
-    nn.utils.clip_grad_norm_(agent.model.critic.parameters(), cfg.max_grad_norm)
-    agent.grad_step()
+    agent.grad_step(cfg.max_grad_norm)
     return info
 
 
-def update_ppo(agent: Network[ActorCritic], buffer: TorchBuffer, last_observations: torch.Tensor, cfg: PPOConfig) -> dict[str, torch.Tensor]:
+def update_ppo(agent: Network[ActorCritic | AtariActorCritic], buffer: TorchBuffer, last_observations: torch.Tensor, cfg: PPOConfig) -> dict[str, torch.Tensor]:
     last_values = get_value(agent, last_observations).clone()
     buffer.compute_returns_and_advantages(last_values, cfg.gamma, cfg.gae_lambda)
     if cfg.normalize_advantages:

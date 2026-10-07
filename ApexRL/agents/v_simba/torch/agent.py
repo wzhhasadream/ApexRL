@@ -8,10 +8,8 @@ import torch
 from gymnasium.vector import VectorEnv
 from torch import nn
 
-from ....buffers.off_policy import Transition
+from ....buffers.off_policy import SequenceBatch, Transition
 from ....buffers.off_policy.numpy_lazy_frame_buffer import NumpyLazyFrameBuffer
-from ....buffers import compress_n_step
-from ....buffers.off_policy.types import Batch
 from ....common.torch import default_device
 from ....model.torch import Alpha, Network, RewardNormalizer, update_reward_normalizer
 from ....model.torch.backbones import VSimbaVisionEncoder
@@ -25,11 +23,8 @@ from .update import update
 class VSimbaAgent(OffPolicyAgent):
     def __init__(self, envs: VectorEnv, cfg: VSimbaConfig):
         super().__init__(envs, cfg)
-        if len(self.observation_shape) != 4 or self.action_is_discrete or self.num_envs != 1:
-            raise ValueError("V-Simba requires one pixel environment with continuous actions")
-        if not (np.allclose(self.action_space.low, -1) and np.allclose(self.action_space.high, 1)):
-            raise ValueError("V-Simba requires actions rescaled to [-1, 1]")
-
+        if len(self.observation_shape) != 4 or self.action_is_discrete:
+            raise ValueError("V-Simba expects [F, H, W, C] observations and continuous actions")
         self.cfg.target_entropy = self.cfg.temp_target_entropy_coef * self.action_dim
         self.device = default_device()
         self._init_state()
@@ -39,14 +34,16 @@ class VSimbaAgent(OffPolicyAgent):
         torch.manual_seed(cfg.seed)
         self.replay_buffer = NumpyLazyFrameBuffer(
             self.observation_space, self.action_space, max_size=cfg.buffer_size,
-            linear_decay_step=cfg.decay_step, max_n_step=cfg.n_step,
+            linear_decay_step=cfg.decay_step, max_n_step=cfg.n_step, num_envs=self.num_envs,
         )
         encoder_model = VSimbaVisionEncoder(
             self.observation_shape, num_channels=cfg.encoder_num_channels,
             num_blocks=cfg.encoder_num_blocks, conv_kernel_size=cfg.encoder_conv_kernel_size,
         ).to(self.device)
         input_dim = encoder_model.get_output_dim()
-        actor_model = Actor(input_dim, self.action_dim, cfg.actor_num_blocks, cfg.actor_hidden_dim).to(self.device)
+        action_low = torch.as_tensor(self.action_low, device=self.device)
+        action_high = torch.as_tensor(self.action_high, device=self.device)
+        actor_model = Actor(input_dim, self.action_dim, action_low, action_high, cfg.actor_num_blocks, cfg.actor_hidden_dim).to(self.device)
         critic_model = Critic(
             input_dim, self.action_dim, num_qs=2 if cfg.critic_use_cdq else 1,
             num_blocks=cfg.critic_num_blocks, hidden_dim=cfg.critic_hidden_dim,
@@ -104,13 +101,9 @@ class VSimbaAgent(OffPolicyAgent):
     def update(self) -> dict[str, float]:
         if not self.can_update:
             raise RuntimeError("Replay buffer is not ready for an update")
-        # Compress n-step on the host so only obs/next_obs (not the whole sequence) go to the GPU.
-        batch = compress_n_step(self.replay_buffer.sample(self.cfg.batch_size, self.cfg.n_step), self.cfg.gamma)
-        batch = Batch(*(torch.as_tensor(value, device=self.device) for value in batch))
+        sequence = SequenceBatch(*(torch.as_tensor(value, device=self.device) for value in self.replay_buffer.sample(self.cfg.batch_size, self.cfg.n_step)))
         torch.compiler.cudagraph_mark_step_begin()
-        info = update(self.cfg, self.encoder, self.actor, self.critic, self.target_critic, self.alpha, self.reward_normalizer, batch)
-        # Kept outside the compiled update (as in FastSAC/FastTD3): an in-graph in-place
-        # target lerp makes AOTAutograd reuse a freed backward graph on the next call.
+        info = update(self.cfg, self.encoder, self.actor, self.critic, self.target_critic, self.alpha, self.reward_normalizer, sequence)
         self.target_critic.soft_update()
         return {name: float(value) for name, value in info.items()}
 

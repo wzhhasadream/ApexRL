@@ -19,7 +19,8 @@ from ....model.jax import Network
 from ...base_agent import OnPolicyAgent, OnPolicySample
 from ..config import PPOConfig
 from .get_action import get_eval_action, get_value, sample_and_value
-from .network import Actor, ActorCritic, Critic
+from .network_atari import ActorCritic as AtariActorCritic
+from .network_state import Actor, ActorCritic, Critic
 from .update import make_update_ppo
 
 
@@ -39,7 +40,12 @@ class PPOAgent(OnPolicyAgent):
     def _init_state(self) -> None:
         cfg = self.cfg
         rngs = nnx.Rngs(cfg.seed)
-        model = ActorCritic(Actor(self.actor_obs_shape, self.action_dim, self.action_is_discrete, rngs, cfg), Critic(self.critic_obs_shape, rngs, cfg))
+        if self.image_obs:
+            if not self.action_is_discrete or self.asymmetric_obs:
+                raise ValueError("Atari PPO requires discrete actions and symmetric image observations")
+            model = AtariActorCritic(self.observation_shape, self.action_dim, rngs, cfg)
+        else:
+            model = ActorCritic(Actor(self.actor_obs_shape, self.action_dim, self.action_is_discrete, rngs, cfg), Critic(self.critic_obs_shape, rngs, cfg))
         # inject_hyperparams: lr lives in the optimizer state, so it can be adapted / annealed without recompiling
         self.agent = Network(model, nnx.Optimizer(model, optax.inject_hyperparams(optax.adam)(learning_rate=cfg.lr), wrt=nnx.Param), forward_name="get_mean_action")
         # Commit params/opt state to the device up front; otherwise every jitted fn compiles twice

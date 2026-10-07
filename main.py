@@ -15,7 +15,7 @@ parser.add_argument("--total-timesteps", type=int, default=None)
 parser.add_argument("--rollout-steps", type=int, default=None)
 parser.add_argument("--num-eval", type=int, default=20)
 parser.add_argument("--num-log", type=int, default=50)
-parser.add_argument("--eval-episodes", type=int, default=10)
+parser.add_argument("--eval-episodes", type=int, default=50)
 parser.add_argument("--results-dir", default="Results")
 parser.add_argument("--project", default="ApexRL")
 parser.add_argument("--run-name", default=None)
@@ -35,7 +35,7 @@ train_envs, eval_envs, record_envs = create_envs(
     env_type="atari",
     seed=args.seed,
     num_train_envs=cfg.num_envs,
-    num_eval_envs=1,
+    num_eval_envs=50,
     num_record_envs=1,
     action_repeat=4,
     max_episode_steps=108_000,

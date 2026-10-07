@@ -16,7 +16,8 @@ from ....model.torch import Network
 from ...base_agent import OnPolicyAgent, OnPolicySample
 from ..config import PPOConfig
 from .get_action import get_eval_action, get_value, sample_and_value
-from .network import Actor, ActorCritic, Critic
+from .network_atari import ActorCritic as AtariActorCritic
+from .network_state import Actor, ActorCritic, Critic
 from .update import update_ppo
 
 
@@ -36,7 +37,13 @@ class PPOAgent(OnPolicyAgent):
     def _init_state(self) -> None:
         cfg = self.cfg
         torch.manual_seed(cfg.seed)
-        model = ActorCritic(Actor(self.actor_obs_shape, self.action_dim, self.action_is_discrete, cfg), Critic(self.critic_obs_shape, cfg)).to(self.device)
+        if self.image_obs:
+            if not self.action_is_discrete or self.asymmetric_obs:
+                raise ValueError("Atari PPO requires discrete actions and symmetric image observations")
+            model = AtariActorCritic(self.observation_shape, self.action_dim, cfg)
+        else:
+            model = ActorCritic(Actor(self.actor_obs_shape, self.action_dim, self.action_is_discrete, cfg), Critic(self.critic_obs_shape, cfg))
+        model = model.to(self.device)
         # Tensor lr: adapted / annealed in place on device without host syncs or recompiles
         optimizer = torch.optim.Adam(model.parameters(), lr=torch.tensor(cfg.lr, device=self.device), fused=True)
         self.agent = Network(model, optimizer)

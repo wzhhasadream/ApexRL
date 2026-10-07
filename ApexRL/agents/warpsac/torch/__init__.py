@@ -3,7 +3,7 @@ from .update import (
     update_critic,
     update_policy,
 )
-from .warpsac import WarpSACAgent
+from .agent import WarpSACAgent
 
 __all__ = [
     "WarpSACAgent",

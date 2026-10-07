@@ -1,4 +1,4 @@
-from .warpsac import WarpSACAgent
+from .agent import WarpSACAgent
 from .update import (
     update_actor,
     update_alpha,

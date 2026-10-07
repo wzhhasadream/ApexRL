@@ -10,7 +10,6 @@ import optax
 from flax import nnx
 from gymnasium.vector import VectorEnv
 
-from ....buffers import compress_n_step
 from ....buffers.off_policy import Transition
 from ....buffers.off_policy.numpy_lazy_frame_buffer import NumpyLazyFrameBuffer
 from ....model.jax import Alpha, Network, RewardNormalizer
@@ -26,10 +25,8 @@ from .update import make_update
 class VSimbaAgent(OffPolicyAgent):
     def __init__(self, envs: VectorEnv, cfg: VSimbaConfig):
         super().__init__(envs, cfg)
-        if len(self.observation_shape) != 4 or self.action_is_discrete or self.num_envs != 1:
-            raise ValueError("V-Simba requires one pixel environment with continuous actions")
-        if not (np.allclose(self.action_space.low, -1) and np.allclose(self.action_space.high, 1)):
-            raise ValueError("V-Simba requires actions rescaled to [-1, 1]")
+        if len(self.observation_shape) != 4 or self.action_is_discrete:
+            raise ValueError("V-Simba expects [F, H, W, C] observations and continuous actions")
         self.cfg.target_entropy = self.cfg.temp_target_entropy_coef * self.action_dim
         self._action_key, self._update_key = jax.random.split(jax.random.PRNGKey(self.cfg.seed))
         self._init_state()
@@ -41,14 +38,15 @@ class VSimbaAgent(OffPolicyAgent):
         compute_type = getattr(jnp, cfg.compute_type)
         self.replay_buffer = NumpyLazyFrameBuffer(
             self.observation_space, self.action_space, max_size=cfg.buffer_size,
-            linear_decay_step=self.cfg.decay_step, max_n_step=cfg.n_step,
+            linear_decay_step=self.cfg.decay_step, max_n_step=cfg.n_step, num_envs=self.num_envs,
         )
         encoder = VSimbaVisionEncoder(
             self.observation_shape, rngs.fork(), num_channels=cfg.encoder_num_channels,
             num_blocks=cfg.encoder_num_blocks, conv_kernel_size=cfg.encoder_conv_kernel_size,
         )
         input_dim = encoder.get_output_dim()
-        actor = Actor(input_dim, self.action_dim, rngs.fork(), cfg.actor_num_blocks, cfg.actor_hidden_dim, compute_type)
+        action_low, action_high = jnp.asarray(self.action_low), jnp.asarray(self.action_high)
+        actor = Actor(input_dim, self.action_dim, rngs.fork(), action_low, action_high, cfg.actor_num_blocks, cfg.actor_hidden_dim, compute_type)
         critic = Critic(
             input_dim, self.action_dim, rngs.fork(), num_qs=2 if cfg.critic_use_cdq else 1,
             num_blocks=cfg.critic_num_blocks, hidden_dim=cfg.critic_hidden_dim, action_embed_dim=cfg.critic_action_embed_dim,
@@ -94,10 +92,9 @@ class VSimbaAgent(OffPolicyAgent):
     def update(self) -> dict[str, float]:
         if not self.can_update:
             raise RuntimeError("Replay buffer is not ready for an update")
-        # Compress n-step on the host so only obs/next_obs (not the whole sequence) go to the GPU.
-        batch = jax.tree.map(jnp.asarray, compress_n_step(self.replay_buffer.sample(self.cfg.batch_size, self.cfg.n_step), self.cfg.gamma))
+        sequence = jax.tree.map(jnp.asarray, self.replay_buffer.sample(self.cfg.batch_size, self.cfg.n_step))
         self._update_key, key = jax.random.split(self._update_key)
-        info = self._update_fn(batch, key)
+        info = self._update_fn(sequence, key)
         return {name: float(value) for name, value in info.items()}
 
     def save(self, checkpoint_dir: str | Path) -> None:

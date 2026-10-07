@@ -12,7 +12,7 @@ from .network import FlashSACActor, FlashSACDoubleCritic
 from ....common import (
     select_actor_observations,
 )
-from ....buffers.off_policy import Batch
+from ....buffers.off_policy import Batch, SequenceBatch, compress_n_step
 from ..config import WarpSACConfig
 
 
@@ -124,36 +124,26 @@ def update_policy(
 
 
 def make_update_warpsac(config: WarpSACConfig):
-    @nnx.jit
+    @nnx.jit(static_argnames=("update_actor", "update_target"))
     def update_warpsac(
         critic: Network[FlashSACDoubleCritic],
         actor: Network[FlashSACActor],
         alpha: Network[Alpha],
         target_critic: Network[FlashSACDoubleCritic],
         reward_normalizer: Network[RewardNormalizer] | None,
-        critic_grad_updates: jax.Array,
         key: jax.Array,
-        batch: Batch,
-    ):
+        sequence: SequenceBatch,
+        update_actor: bool,
+        update_target: bool,
+    ) -> dict[str, jax.Array]:
+        batch = compress_n_step(sequence, config.gamma)
         if reward_normalizer is not None:
             batch = batch._replace(rewards=reward_normalizer.model.normalize(batch.rewards))
         policy_key, critic_key = jax.random.split(key)
-        do_policy = critic_grad_updates % config.policy_frequency == 0
-        policy_info = nnx.cond(
-            do_policy,
-            lambda critic, actor, alpha: update_policy(critic, actor, alpha, config, batch, policy_key),
-            lambda critic, actor, alpha: {
-                "training/actor_loss": jnp.array(0.0), "training/alpha_loss": jnp.array(0.0),
-                "training/alpha_value": alpha(), "training/entropy": jnp.array(0.0),
-            },
-            critic, actor, alpha,
-        )
+        policy_info = update_policy(critic, actor, alpha, config, batch, policy_key) if update_actor else {}
         critic_info = update_critic(actor, critic, alpha, target_critic, config, batch, critic_key)
-        critic_grad_updates += 1
-        nnx.cond(critic_grad_updates % config.target_frequency == 0,
-                 lambda target_critic: target_critic.soft_update(), lambda target_critic: None, target_critic)
-        info = {**critic_info, **policy_info, "training/alpha_value": alpha(),
-                "training/policy_updated": do_policy.astype(jnp.float32)}
-        return critic_grad_updates, info
+        if update_target:
+            target_critic.soft_update()
+        return {**critic_info, **policy_info}
 
     return update_warpsac

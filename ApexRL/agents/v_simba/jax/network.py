@@ -12,12 +12,12 @@ from ....model.jax.policy import SquashedTanhGaussianPolicy
 
 
 class Actor(nnx.Module):
-    def __init__(self, input_dim: int, action_dim: int, rngs: nnx.Rngs, num_blocks: int = 1, hidden_dim: int = 128, compute_type: Dtype = jnp.float32):
+    def __init__(self, input_dim: int, action_dim: int, rngs: nnx.Rngs, action_low: jax.Array, action_high: jax.Array, num_blocks: int = 1, hidden_dim: int = 128, compute_type: Dtype = jnp.float32):
         self.action_dim = action_dim
         self.trunk = VSimbaEncoder(input_dim, num_blocks, hidden_dim, rngs, compute_type=compute_type)
         self.mean_w = nnx.Linear(hidden_dim, action_dim, rngs=rngs, kernel_init=orthogonal(1), dtype=compute_type)
         self.log_std_w = nnx.Linear(hidden_dim, action_dim, rngs=rngs, kernel_init=orthogonal(1), dtype=compute_type)
-        self.policy = SquashedTanhGaussianPolicy(-1.0, 1.0, log_std_min=-10.0, log_std_max=2.0)
+        self.policy = SquashedTanhGaussianPolicy(action_low, action_high, log_std_min=-10.0, log_std_max=2.0)
 
     def __call__(self, vision_z: jax.Array) -> tuple[jax.Array, jax.Array]:
         z = self.trunk(vision_z)

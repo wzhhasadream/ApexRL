@@ -5,28 +5,30 @@ import torch
 
 from ....common import select_actor_observations
 from ....model.torch import Network
-from .network import ActorCritic
+from .network_atari import ActorCritic as AtariActorCritic
+from .network_state import ActorCritic
 
 
 @torch.no_grad()
 @torch.compile(mode="max-autotune")
-def get_eval_action(agent: Network[ActorCritic], asymmetric_obs: bool, observations: torch.Tensor) -> torch.Tensor:
+def get_eval_action(agent: Network[ActorCritic | AtariActorCritic], asymmetric_obs: bool, observations: torch.Tensor) -> torch.Tensor:
     return agent(select_actor_observations(observations, asymmetric_obs, agent.model.actor.obs_dim))
 
 
 @torch.no_grad()
 @torch.compile(mode="max-autotune")
-def get_value(agent: Network[ActorCritic], observations: torch.Tensor) -> torch.Tensor:
+def get_value(agent: Network[ActorCritic | AtariActorCritic], observations: torch.Tensor) -> torch.Tensor:
     return agent.model.critic(observations, update_rms=False)
 
 
 @torch.no_grad()
 @torch.compile(mode="max-autotune")
-def sample_and_value(agent: Network[ActorCritic], asymmetric_obs: bool, observations: torch.Tensor):
+def sample_and_value(agent: Network[ActorCritic | AtariActorCritic], asymmetric_obs: bool, observations: torch.Tensor):
     # Rollout step: also accumulates running obs statistics (frozen until sync_rms after the update)
     actor = agent.model.actor
-    actions, log_probs, _, metadata = actor.get_action(select_actor_observations(observations, asymmetric_obs, actor.obs_dim), update_rms=True)
-    values = agent.model.critic(observations, update_rms=True)
+    actions, log_probs, _, metadata, values = agent.model.get_action_and_value(
+        select_actor_observations(observations, asymmetric_obs, actor.obs_dim), observations, update_rms=True,
+    )
     return actions, values, log_probs, metadata
 
 

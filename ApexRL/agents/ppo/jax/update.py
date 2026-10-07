@@ -10,18 +10,20 @@ from flax import nnx
 from ....buffers.on_policy.jax_buffer import JaxBuffer
 from ....buffers.on_policy.types import RolloutBatch
 from ....common import select_actor_observations
-from ....model.jax import Network, clip_grads
+from ....model.jax import Network
 from ..config import PPOConfig
-from .network import ActorCritic
+from .network_atari import ActorCritic as AtariActorCritic
+from .network_state import ActorCritic
 from ....common.jax import adapt_lr, categorical_kl, diagonal_gaussian_kl
 
 
-def update_ppo_minibatch(agent: Network[ActorCritic], batch: RolloutBatch, cfg: PPOConfig) -> tuple[Network[ActorCritic], dict[str, jax.Array]]:
-    def ppo_loss(model: ActorCritic) -> tuple[jax.Array, dict[str, jax.Array]]:
-        actor, critic = model.actor, model.critic
+def update_ppo_minibatch(agent: Network[ActorCritic | AtariActorCritic], batch: RolloutBatch, cfg: PPOConfig) -> tuple[Network[ActorCritic | AtariActorCritic], dict[str, jax.Array]]:
+    def ppo_loss(model: ActorCritic | AtariActorCritic) -> tuple[jax.Array, dict[str, jax.Array]]:
+        actor = model.actor
         actor_obs = select_actor_observations(batch.observations, cfg.asymmetric_obs, actor.obs_dim)
-        _, new_log_probs, entropy, metadata = actor.get_action(actor_obs, update_rms=False, actions=batch.actions)
-        values = critic(batch.observations, update_rms=False)
+        _, new_log_probs, entropy, metadata, values = model.get_action_and_value(
+            actor_obs, batch.observations, update_rms=False, actions=batch.actions,
+        )
         ratio = jnp.exp(new_log_probs - batch.old_log_probs)
 
         if cfg.algo == "ppo":
@@ -54,15 +56,13 @@ def update_ppo_minibatch(agent: Network[ActorCritic], batch: RolloutBatch, cfg: 
     if cfg.desired_kl is not None:
         hyperparams = agent.opt.opt_state.hyperparams
         hyperparams["learning_rate"].value = adapt_lr(hyperparams["learning_rate"].value, info["training/kl"], cfg.desired_kl)
-    grads["actor"] = clip_grads(grads["actor"], cfg.max_grad_norm)
-    grads["critic"] = clip_grads(grads["critic"], cfg.max_grad_norm)
-    agent.grad_step(grads)
+    agent.grad_step(grads, cfg.max_grad_norm)
     return agent, info
 
 
 def make_update_ppo(cfg: PPOConfig):
     @nnx.jit
-    def update_ppo(agent: Network[ActorCritic], buffer: JaxBuffer, last_obs: jax.Array, key: jax.Array) -> dict[str, jax.Array]:
+    def update_ppo(agent: Network[ActorCritic | AtariActorCritic], buffer: JaxBuffer, last_obs: jax.Array, key: jax.Array) -> dict[str, jax.Array]:
         last_value = agent.model.critic(last_obs, update_rms=False)
         buffer = buffer.compute_returns_and_advantages(last_value, cfg.gamma, cfg.gae_lambda)
         if cfg.normalize_advantages:

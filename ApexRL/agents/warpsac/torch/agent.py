@@ -6,7 +6,7 @@ import torch
 from gymnasium.vector import VectorEnv
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from ....buffers.off_policy import Transition, compress_n_step
+from ....buffers.off_policy import SequenceBatch, Transition
 from ....buffers.off_policy.torch_buffer import TorchBuffer
 from ..config import WarpSACConfig
 from ....model.torch import (
@@ -21,7 +21,6 @@ from .get_action import (
     update_reward_normalizer,
 )
 from .update import update_warpsac
-import torch.utils._pytree as pytree
 from ...base_agent import OffPolicyAgent
 
 class WarpSACAgent(OffPolicyAgent):
@@ -38,6 +37,7 @@ class WarpSACAgent(OffPolicyAgent):
         self.repeat_n = torch.tensor(0, device=self.learner_device)
         self.cached_noise = torch.randn((self.num_envs, self.action_dim), device=self.learner_device)
         self.critic_grad_updates = 0
+        self._obs_cache = (None, None)
 
     def _init_train_state(self) -> None:
         num_updates = max(1, int(self.cfg.total_timesteps / self.num_envs * self.cfg.grad_step_per_interaction_step))
@@ -135,12 +135,14 @@ class WarpSACAgent(OffPolicyAgent):
     def get_exploration_action(
         self, observations: np.ndarray | torch.Tensor
     ) -> np.ndarray:
-        observations = self._observations(observations)
+        obs = self._observations(observations)
+        # Reuse this device copy when the runner stores the same observation.
+        self._obs_cache = (observations, obs)
         noise = torch.randn((self.num_envs, self.action_dim), device=self.learner_device)
         cached_noise, actions, repeat_n, repeat_count = get_exploration_action(
             self.actor,
             self.asymmetric_obs,
-            observations,
+            obs,
             self.repeat_n,
             self.repeat_count,
             self.cached_noise,
@@ -154,6 +156,8 @@ class WarpSACAgent(OffPolicyAgent):
         return actions.cpu().numpy()
 
     def process_transition(self, transition: Transition) -> None:
+        if self._obs_cache[0] is transition.observations and self._obs_cache[1].device == self.replay_buffer.observations.device:
+            transition = transition._replace(observations=self._obs_cache[1])
         update_reward_normalizer(
             self.reward_normalizer,
             torch.as_tensor(transition.rewards, device=self.learner_device),
@@ -161,6 +165,7 @@ class WarpSACAgent(OffPolicyAgent):
             torch.as_tensor(transition.truncations, device=self.learner_device),
         )
         self.replay_buffer.add(transition)
+        self._obs_cache = (None, None)
 
     @property
     def can_update(self) -> bool:
@@ -170,13 +175,17 @@ class WarpSACAgent(OffPolicyAgent):
         if not self.can_update:
             raise RuntimeError("Replay buffer is not ready for an update")
         sequence = self.replay_buffer.sample(self.cfg.batch_size, self.cfg.n_step)
-        batch = compress_n_step(sequence, self.cfg.gamma)
-        batch = pytree.tree_map(lambda x: x.to(self.learner_device), batch)
+        if self.cfg.buffer_device != self.learner_device:
+            sequence = SequenceBatch(*(value.to(self.learner_device) for value in sequence))
         do_policy = self.critic_grad_updates % self.cfg.policy_frequency == 0
         self.critic_grad_updates += 1
         do_target = self.critic_grad_updates % self.cfg.target_frequency == 0
-        info = self._update_fn(self.critic, self.actor, self.alpha, self.target_critic, self.reward_normalizer, do_policy, do_target, batch, self.cfg)
-        return {name: float(value) for name, value in info.items()}
+        torch.compiler.cudagraph_mark_step_begin()
+        info = self._update_fn(self.critic, self.actor, self.alpha, self.target_critic, self.reward_normalizer, do_policy, sequence, self.cfg)
+        # Keep target mutation outside the compiled backward graphs.
+        if do_target:
+            self.target_critic.soft_update()
+        return dict(zip(info.keys(), torch.stack(list(info.values())).tolist()))
 
     def save(self, checkpoint_dir: str | Path) -> None:
         checkpoint_dir = Path(checkpoint_dir)

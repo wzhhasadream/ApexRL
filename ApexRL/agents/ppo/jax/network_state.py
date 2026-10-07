@@ -12,7 +12,6 @@ from flax.typing import Dtype
 from ....buffers.on_policy.types import PolicyMetadata
 from ....common import flatten_observation_dim
 from ....model.jax import MLP, OnPolicyRMS
-from ....model.jax.backbones import NatureCNN
 from ....model.jax.layer import orthogonal
 from ....model.jax.policy import GaussianPolicy, MaskedCategoricalPolicy
 from ..config import PPOConfig
@@ -26,26 +25,18 @@ def activation_fn(name: str) -> Callable:
 
 
 class Encoder(nnx.Module):
-    """Flat obs: running mean/std + MLP. Image obs [F, H, W, C] uint8: Nature CNN."""
+    """State observations: frozen rollout statistics followed by an MLP."""
 
-    def __init__(self, obs_shape: tuple[int, ...], hidden_dims: Sequence[int], rngs: nnx.Rngs, activation: Callable, cnn_hidden_dim: int, compute_type: Dtype) -> None:
-        self.image = len(obs_shape) > 1
-        if self.image:
-            self.cnn = NatureCNN(obs_shape, rngs, cnn_hidden_dim, compute_type)
-            self.out_dim = self.cnn.out_dim
-        else:
-            self.obs_norm = OnPolicyRMS(flatten_observation_dim(obs_shape))
-            self.mlp = MLP(flatten_observation_dim(obs_shape), hidden_dims, rngs, activation_fn=activation, compute_type=compute_type)
-            self.out_dim = hidden_dims[-1]
+    def __init__(self, obs_shape: tuple[int, ...], hidden_dims: Sequence[int], rngs: nnx.Rngs, activation: Callable, compute_type: Dtype) -> None:
+        self.obs_norm = OnPolicyRMS(flatten_observation_dim(obs_shape))
+        self.mlp = MLP(flatten_observation_dim(obs_shape), hidden_dims, rngs, activation_fn=activation, compute_type=compute_type)
+        self.out_dim = hidden_dims[-1]
 
     def __call__(self, obs: jax.Array, update_rms: bool = False) -> jax.Array:
-        if self.image:
-            return self.cnn(obs)
         return self.mlp(self.obs_norm.normalize(obs, update_rms))
 
     def sync_rms(self) -> None:
-        if not self.image:
-            self.obs_norm.sync()
+        self.obs_norm.sync()
 
 
 class Actor(nnx.Module):
@@ -53,7 +44,7 @@ class Actor(nnx.Module):
         compute_type = getattr(jnp, cfg.compute_type)
         self.obs_dim = flatten_observation_dim(obs_shape)
         self.discrete = discrete
-        self.encoder = Encoder(obs_shape, cfg.actor_hidden_dims, rngs, activation_fn(cfg.activation), cfg.cnn_hidden_dim, compute_type)
+        self.encoder = Encoder(obs_shape, cfg.actor_hidden_dims, rngs, activation_fn(cfg.activation), compute_type)
         # Near-uniform initial categorical policy (CleanRL)
         self.head = nnx.Linear(self.encoder.out_dim, action_dim, rngs=rngs, kernel_init=orthogonal(0.01 if discrete else 1.0), dtype=compute_type)
         if discrete:
@@ -87,7 +78,7 @@ class Actor(nnx.Module):
 class Critic(nnx.Module):
     def __init__(self, obs_shape: tuple[int, ...], rngs: nnx.Rngs, cfg: PPOConfig) -> None:
         compute_type = getattr(jnp, cfg.compute_type)
-        self.encoder = Encoder(obs_shape, cfg.critic_hidden_dims, rngs, activation_fn(cfg.activation), cfg.cnn_hidden_dim, compute_type)
+        self.encoder = Encoder(obs_shape, cfg.critic_hidden_dims, rngs, activation_fn(cfg.activation), compute_type)
         self.value_head = nnx.Linear(self.encoder.out_dim, 1, rngs=rngs, kernel_init=orthogonal(1.0), dtype=compute_type)
 
     def __call__(self, obs: jax.Array, update_rms: bool = False) -> jax.Array:
@@ -101,6 +92,11 @@ class ActorCritic(nnx.Module):
 
     def get_mean_action(self, obs: jax.Array) -> jax.Array:
         return self.actor.get_mean_action(obs)
+
+    def get_action_and_value(self, actor_obs: jax.Array, critic_obs: jax.Array, key: jax.Array | None = None, update_rms: bool = True, actions: jax.Array | None = None) -> tuple[jax.Array, jax.Array, jax.Array, PolicyMetadata, jax.Array]:
+        actions, log_probs, entropy, metadata = self.actor.get_action(actor_obs, key, update_rms, actions)
+        values = self.critic(critic_obs, update_rms)
+        return actions, log_probs, entropy, metadata, values
 
     def sync_rms(self) -> None:
         self.actor.encoder.sync_rms()

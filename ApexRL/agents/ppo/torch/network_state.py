@@ -11,33 +11,24 @@ import torch.nn.functional as F
 from ....buffers.on_policy.types import PolicyMetadata
 from ....common import flatten_observation_dim
 from ....model.torch import Linear, MLP, OnPolicyRMS
-from ....model.torch.backbones import NatureCNN
 from ....model.torch.policy import GaussianPolicy, MaskedCategoricalPolicy
 from ..config import PPOConfig
 
 
 class Encoder(nn.Module):
-    """Flat obs: running mean/std + MLP. Image obs [F, H, W, C] uint8: Nature CNN."""
+    """State observations: frozen rollout statistics followed by an MLP."""
 
-    def __init__(self, obs_shape: tuple[int, ...], hidden_dims: Sequence[int], activation: Callable, cnn_hidden_dim: int) -> None:
+    def __init__(self, obs_shape: tuple[int, ...], hidden_dims: Sequence[int], activation: Callable) -> None:
         super().__init__()
-        self.image = len(obs_shape) > 1
-        if self.image:
-            self.cnn = NatureCNN(obs_shape, cnn_hidden_dim)
-            self.out_dim = self.cnn.out_dim
-        else:
-            self.obs_norm = OnPolicyRMS(flatten_observation_dim(obs_shape))
-            self.mlp = MLP(flatten_observation_dim(obs_shape), hidden_dims, layer_norm=True, activation_fn=activation)
-            self.out_dim = hidden_dims[-1]
+        self.obs_norm = OnPolicyRMS(flatten_observation_dim(obs_shape))
+        self.mlp = MLP(flatten_observation_dim(obs_shape), hidden_dims, layer_norm=True, activation_fn=activation)
+        self.out_dim = hidden_dims[-1]
 
     def forward(self, obs: torch.Tensor, update_rms: bool = False) -> torch.Tensor:
-        if self.image:
-            return self.cnn(obs)
         return self.mlp(self.obs_norm.normalize(obs, update_rms))
 
     def sync_rms(self) -> None:
-        if not self.image:
-            self.obs_norm.sync()
+        self.obs_norm.sync()
 
 
 class Actor(nn.Module):
@@ -45,7 +36,7 @@ class Actor(nn.Module):
         super().__init__()
         self.obs_dim = flatten_observation_dim(obs_shape)
         self.discrete = discrete
-        self.encoder = Encoder(obs_shape, cfg.actor_hidden_dims, getattr(F, cfg.activation), cfg.cnn_hidden_dim)
+        self.encoder = Encoder(obs_shape, cfg.actor_hidden_dims, getattr(F, cfg.activation))
         self.head = Linear(self.encoder.out_dim, action_dim)
         if discrete:
             nn.init.orthogonal_(self.head.weight, 0.01)    # near-uniform initial policy (CleanRL)
@@ -78,7 +69,7 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self, obs_shape: tuple[int, ...], cfg: PPOConfig) -> None:
         super().__init__()
-        self.encoder = Encoder(obs_shape, cfg.critic_hidden_dims, getattr(F, cfg.activation), cfg.cnn_hidden_dim)
+        self.encoder = Encoder(obs_shape, cfg.critic_hidden_dims, getattr(F, cfg.activation))
         self.value_head = Linear(self.encoder.out_dim, 1)
 
     def forward(self, obs: torch.Tensor, update_rms: bool = False) -> torch.Tensor:
@@ -93,6 +84,11 @@ class ActorCritic(nn.Module):
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         return self.actor.get_mean_action(obs)
+
+    def get_action_and_value(self, actor_obs: torch.Tensor, critic_obs: torch.Tensor, update_rms: bool = True, actions: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, PolicyMetadata, torch.Tensor]:
+        actions, log_probs, entropy, metadata = self.actor.get_action(actor_obs, update_rms, actions)
+        values = self.critic(critic_obs, update_rms)
+        return actions, log_probs, entropy, metadata, values
 
     def sync_rms(self) -> None:
         self.actor.encoder.sync_rms()

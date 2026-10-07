@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from flax import nnx
 import numpy as np
 from optax import adam, cosine_decay_schedule
-from ....buffers.off_policy import Transition, compress_n_step
+from ....buffers.off_policy import Transition
 from ....buffers.off_policy.jax_buffer import JaxBuffer
 from ..config import WarpSACConfig
 from ....model.jax import Alpha, Network, RewardNormalizer
@@ -39,6 +39,7 @@ class WarpSACAgent(OffPolicyAgent):
         self._action_key, self._update_key, self._sample_key = jax.random.split(
             jax.random.PRNGKey(cfg.seed), 3
         )
+        self._obs_cache = (None, None)
 
     def _init_cached_fn(self):
         update_fn = make_update_warpsac(self.cfg)
@@ -156,7 +157,7 @@ class WarpSACAgent(OffPolicyAgent):
         self.cached_key = jax.random.PRNGKey(0)
         self.repeat_count = jnp.array(0, dtype=jnp.int32)
         self.repeat_n = jnp.array(1, dtype=jnp.int32)
-        self.critic_grad_updates = jnp.array(0, dtype=jnp.int32)
+        self.critic_grad_updates = 0
 
 
     def get_action(self, obs: jax.Array | np.ndarray) -> np.ndarray:
@@ -165,10 +166,12 @@ class WarpSACAgent(OffPolicyAgent):
         return np.asarray(actions)
 
     def get_exploration_action(self, obs: jax.Array | np.ndarray) -> np.ndarray:
-        obs = jnp.asarray(obs, jnp.float32).reshape((-1,) + self.observation_shape)
+        obs_device = jnp.asarray(obs, jnp.float32, device=self.learner_device).reshape((-1,) + self.observation_shape)
+        # Reuse this device copy when the runner stores the same observation.
+        self._obs_cache = (obs, obs_device)
         self._action_key, action_key = jax.random.split(self._action_key, 2)
         self.cached_key, actions, self.repeat_n, self.repeat_count = self._get_exploration_action_fn(
-            obs,
+            obs_device,
             self.repeat_n,
             self.repeat_count,
             self.cached_key,
@@ -177,12 +180,15 @@ class WarpSACAgent(OffPolicyAgent):
         return np.asarray(actions)
 
     def process_transition(self, transition: Transition) -> None:
+        if self._obs_cache[0] is transition.observations and self._obs_cache[1].device == self.replay_buffer.observations.device:
+            transition = transition._replace(observations=self._obs_cache[1])
         self._update_reward_normalizer(
             transition.rewards,
             transition.terminations,
             transition.truncations,
         )
         self.replay_buffer = self.replay_buffer.add(transition)
+        self._obs_cache = (None, None)
         self._num_steps += 1
 
     @property
@@ -194,14 +200,12 @@ class WarpSACAgent(OffPolicyAgent):
             raise RuntimeError("Replay buffer is not ready for an update")
         self._sample_key, sample_key = jax.random.split(self._sample_key, 2)
         sequence = self.replay_buffer.sample(sample_key, self.cfg.batch_size, self.cfg.n_step)
-        batch = compress_n_step(sequence, self.cfg.gamma)
-        batch = jax.tree.map(lambda x: jax.device_put(x, self.learner_device), batch)
+        sequence = jax.device_put(sequence, self.learner_device)
         self._update_key, update_key = jax.random.split(self._update_key)
-        self.critic_grad_updates, info = self._update_fn(
-            self.critic_grad_updates,
-            update_key,
-            batch,
-        )
+        update_actor = self.critic_grad_updates % self.cfg.policy_frequency == 0
+        self.critic_grad_updates += 1
+        update_target = self.critic_grad_updates % self.cfg.target_frequency == 0
+        info = self._update_fn(update_key, sequence, update_actor=update_actor, update_target=update_target)
 
         return {name: float(value) for name, value in jax.device_get(info).items()}
 

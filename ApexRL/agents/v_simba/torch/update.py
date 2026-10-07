@@ -2,7 +2,7 @@
 # https://github.com/DAVIAN-Robotics/V-Simba/tree/be811e968bc02589fbb32f3be79f9a7d9a8fa86d/scale_rl/agents/vsimba
 import torch
 
-from ....buffers.off_policy.types import Batch
+from ....buffers.off_policy import Batch, SequenceBatch, compress_n_step
 from ....common.torch import augment_observations
 from ....model.torch import Alpha, Network
 from ....model.torch.backbones import VSimbaVisionEncoder
@@ -104,9 +104,10 @@ def update(
     target_critic: Network[Critic],
     alpha: Network[Alpha],
     reward_normalizer: Network | None,
-    batch: Batch,
+    sequence: SequenceBatch,
 ) -> dict[str, torch.Tensor]:
-    """Run one V-Simba update on an n-step compressed batch."""
+    """Compress n-step transitions and run one V-Simba update."""
+    batch = compress_n_step(sequence, cfg.gamma)
     rewards = batch.rewards if reward_normalizer is None else reward_normalizer.model.normalize(batch.rewards)
     # Explicit construction avoids PyTorch 2.9's _replace + graph-break bug.
     batch = Batch(augment_observations(batch.observations), batch.actions, rewards, batch.dones, augment_observations(batch.next_observations), batch.discounts)

@@ -19,6 +19,8 @@ class Actor(nn.Module):
         self,
         input_dim: int,
         action_dim: int,
+        action_low: torch.Tensor,
+        action_high: torch.Tensor,
         num_blocks: int = 1,
         hidden_dim: int = 128,
     ) -> None:
@@ -27,7 +29,7 @@ class Actor(nn.Module):
         self.mean_w = Linear(hidden_dim, action_dim)
         self.log_std_w = Linear(hidden_dim, action_dim)
         self.policy = SquashedTanhGaussianPolicy(
-            -1.0, 1.0, log_std_min=-10.0, log_std_max=2.0
+            action_low, action_high, log_std_min=-10.0, log_std_max=2.0
         )
 
     def forward(self, vision_z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

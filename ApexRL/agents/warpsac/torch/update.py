@@ -2,7 +2,7 @@ from collections.abc import Callable
 import torch
 import torch.nn.functional as functional
 
-from ....buffers.off_policy import Batch
+from ....buffers.off_policy import Batch, SequenceBatch, compress_n_step
 from ..config import WarpSACConfig
 from ....model.torch import (
     Alpha,
@@ -218,6 +218,7 @@ def update_policy(
 
 
 
+@torch.compile(mode=compile_mode)
 def update_warpsac(
     critic: Network[FlashSACDoubleCritic],
     actor: Network[FlashSACActor],
@@ -225,21 +226,16 @@ def update_warpsac(
     target_critic: Network[FlashSACDoubleCritic],
     reward_normalizer: Network[RewardNormalizer] | None,
     do_policy: bool,
-    do_target: bool,
-    batch: Batch,
+    sequence: SequenceBatch,
     config: WarpSACConfig
-) -> dict:
+) -> dict[str, torch.Tensor]:
 
+    batch = compress_n_step(sequence, config.gamma)
     if reward_normalizer is not None:
-        batch = batch._replace(
-            rewards=reward_normalizer.model.normalize(batch.rewards)
-        )
+        batch = Batch(batch.observations, batch.actions, reward_normalizer.model.normalize(batch.rewards), batch.dones, batch.next_observations, batch.discounts)
     policy_info = {}
     if do_policy:
         policy_info = update_policy(critic, actor, alpha, config, batch)
     critic_info = update_critic(actor, critic, alpha, target_critic, config, batch)
-    if do_target:
-        target_critic.soft_update()
-    return {**policy_info, **critic_info, "training/alpha_value": alpha.model().detach(),
-            "training/policy_updated": torch.tensor(float(do_policy), device=batch.rewards.device)}
+    return {**policy_info, **critic_info}
     

@@ -5,7 +5,7 @@ from ..config import VSimbaConfig
 import jax
 from flax import nnx
 import jax.numpy as jnp
-from ....buffers.off_policy.types import Batch
+from ....buffers.off_policy import Batch, SequenceBatch, compress_n_step
 from ....common.jax.augment import augment_observations
 from ....model.jax import Alpha, Network, RewardNormalizer, soft_update
 from ....model.jax.backbones import VSimbaVisionEncoder
@@ -68,8 +68,9 @@ def make_update(cfg: VSimbaConfig):
     def update(
         encoder: Network[VSimbaVisionEncoder], actor: Network[Actor], critic: Network[Critic],
         target_critic: Network[Critic], alpha: Network[Alpha], reward_normalizer: Network[RewardNormalizer] | None,
-        batch: Batch, key: jax.Array,
+        sequence: SequenceBatch, key: jax.Array,
     ):
+        batch = compress_n_step(sequence, cfg.gamma)
         obs_key, next_obs_key, actor_key, critic_key = jax.random.split(key, 4)
         rewards = batch.rewards if reward_normalizer is None else reward_normalizer.model.normalize(batch.rewards)
         batch = batch._replace(

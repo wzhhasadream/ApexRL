@@ -2,7 +2,7 @@ from ....model.torch import RewardNormalizer, Network
 from .network import FlashSACActor
 import torch
 from ....common import select_actor_observations
-from .zeta_dist import sample_truncated_zeta
+from ....common.torch import sample_truncated_zeta
 
 compile_mode = "max-autotune"
 
