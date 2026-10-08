@@ -28,7 +28,7 @@ jax = [
 ]
 # ApexRL itself only needs torch; torchvision / torchaudio are listed in the extras whose packages require them
 torch = ["torch==2.9.0"]
-atari = ["gymnasium[atari]==1.2.0", "ale-py==0.12.1", "envpool==0.8.4"]
+atari = ["gymnasium[atari]==1.2.0", "ale-py==0.12.1", "envpool==0.9.0"]
 mujoco = ["mujoco==3.5.0"]
 dmc = ["dm-control==1.0.31", "mujoco==3.5.0", "shimmy==2.0.1", "termcolor==3.3.0"]
 myosuite = [
