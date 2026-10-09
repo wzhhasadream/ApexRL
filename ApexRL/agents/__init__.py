@@ -1,9 +1,18 @@
 """Public agent interfaces."""
 
 __all__ = ["JaxVSimbaAgent", "TorchVSimbaAgent", "VSimbaConfig", "JaxPQNAgent", "TorchPQNAgent", "PQNConfig", "JaxFastSACAgent", "TorchFastSACAgent", "FastSACConfig", "JaxFastTD3Agent", "TorchFastTD3Agent", "FastTD3Config", "JaxPPOAgent", "TorchPPOAgent", "PPOConfig", "JaxWarpSACAgent", "TorchWarpSACAgent", "WarpSACConfig"]
+__all__ += ["JaxBQNAgent", "BQNConfig"]
 
 
 def __getattr__(name: str):
+    if name == "JaxBQNAgent":
+        from .bqn.jax import BQNAgent
+
+        return BQNAgent
+    if name == "BQNConfig":
+        from .bqn.config import BQNConfig
+
+        return BQNConfig
     if name == "JaxVSimbaAgent":
         from .v_simba.jax import VSimbaAgent
 
