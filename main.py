@@ -13,7 +13,7 @@ from ApexRL.runners.types import EnvironmentConfig
 @dataclass
 class Args(PQNConfig):
     env_type: Literal["atari"] = "atari"   # PQN only support atari
-    env_name: str = "Pong-v5"
+    env_id: str = "Pong-v5"
     num_eval: int = 20
     num_log: int = 50
     eval_episodes: int = 50
@@ -27,10 +27,10 @@ class Args(PQNConfig):
 
 args = tyro.cli(Args)
 
-cfg = PQNConfig.from_cli(args, args.env_type, args.env_name)  # Defaults < environment presets < explicit CLI overrides. Omitted CLI arguments do not override presets.
+cfg = PQNConfig.from_cli(args, args.env_type, args.env_id)  # Defaults < environment presets < explicit CLI overrides. Omitted CLI arguments do not override presets.
 
 train_envs, eval_envs, record_envs = create_envs(
-    env_name=args.env_name,
+    env_name=args.env_id,
     env_type=args.env_type,
     seed=cfg.seed,
     num_train_envs=cfg.num_train_env,
@@ -63,6 +63,6 @@ runner = OnPolicyRunner(
     run_cfg=run_cfg,
     results_dir=args.results_dir,
     project=args.project,
-    run_name=args.run_name or args.env_name,
+    run_name=args.run_name or args.env_id,
 )
 runner.run()
