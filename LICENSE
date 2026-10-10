@@ -20,13 +20,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---------------------------------------------------------------------------------
-
-Some components are adapted from third-party projects and remain under their
-original licenses. See THIRD_PARTY_NOTICES.md and the LICENSE file inside each
-of the following directories:
-
-  ApexRL/agents/pqn/      Apache-2.0  (mttga/purejaxql)
-  ApexRL/agents/fasttd3/  MIT         (younggyoseo/FastTD3)
-  ApexRL/agents/fastsac/  Apache-2.0  (amazon-far/holosoma)
-  ApexRL/agents/v_simba/  Apache-2.0  (DAVIAN-Robotics/V-Simba)
