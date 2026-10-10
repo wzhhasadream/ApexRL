@@ -3,17 +3,17 @@ from typing import Literal
 
 import tyro
 
-from ApexRL.agents.bqn.config import BQNConfig
-from ApexRL.agents.bqn.jax import BQNAgent
+from ApexRL.agents.pqn.config import PQNConfig
+from ApexRL.agents.pqn.jax import PQNAgent
 from ApexRL.envs import create_envs
-from ApexRL.runners import OnPolicyRunner, OnPolicyRunnerConfig, OffPolicyRunner, OffPolicyRunnerConfig
+from ApexRL.runners import OnPolicyRunner, OnPolicyRunnerConfig
 from ApexRL.runners.types import EnvironmentConfig
 
 
 @dataclass
-class Args(BQNConfig):
+class Args(PQNConfig):
     env_type: Literal["atari"] = "atari"   # PQN only support atari
-    env_name: str = "Pong-v5"
+    env_id: str = "Pong-v5"
     num_eval: int = 20
     num_log: int = 50
     eval_episodes: int = 50
@@ -27,10 +27,10 @@ class Args(BQNConfig):
 
 args = tyro.cli(Args)
 
-cfg = BQNConfig.from_cli(args, args.env_type, args.env_name)  # Defaults < environment presets < explicit CLI overrides. Omitted CLI arguments do not override presets.
+cfg = PQNConfig.from_cli(args, args.env_type, args.env_id)  # Defaults < environment presets < explicit CLI overrides. Omitted CLI arguments do not override presets.
 
 train_envs, eval_envs, record_envs = create_envs(
-    env_name=args.env_name,
+    env_name=args.env_id,
     env_type=args.env_type,
     seed=cfg.seed,
     num_train_envs=cfg.num_train_env,
@@ -42,18 +42,19 @@ train_envs, eval_envs, record_envs = create_envs(
     render_mode="rgb_array" if args.record_video else None,
 )
 
-agent = BQNAgent(train_envs, cfg)
+agent = PQNAgent(train_envs, cfg)
 env_cfg = EnvironmentConfig(env_type=args.env_type, seed=cfg.seed, eval_episode=args.eval_episodes)
-run_cfg = OffPolicyRunnerConfig(
+run_cfg = OnPolicyRunnerConfig(
     total_timesteps=cfg.total_timesteps,
-    grad_step_per_interaction_step=cfg.grad_step_per_interaction_step,
+    rollout_steps=cfg.rollout_steps,
+    gamma=cfg.gamma,
     num_eval=args.num_eval,
     num_log=args.num_log,
     record_video=args.record_video,
     save_agent=args.save_agent,
     save_onnx=args.save_onnx,
 )
-runner = OffPolicyRunner(
+runner = OnPolicyRunner(
     train_envs=train_envs,
     eval_envs=eval_envs,
     record_envs=record_envs,
@@ -62,6 +63,6 @@ runner = OffPolicyRunner(
     run_cfg=run_cfg,
     results_dir=args.results_dir,
     project=args.project,
-    run_name=args.run_name or args.env_name,
+    run_name=args.run_name or args.env_id,
 )
 runner.run()

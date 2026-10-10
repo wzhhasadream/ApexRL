@@ -96,6 +96,55 @@ the choices in `[tool.uv] override-dependencies` apply only when installing with
 
 PPO and PQN use `OnPolicyRunner`. FastTD3, FastSAC, WarpSAC, and V-Simba use `OffPolicyRunner`.
 
+### Training scripts
+
+Each algorithm has a training entrypoint in `scripts/`. Install the matching backend and environment
+extras, then run these commands from the repository root. Both backends use the same script; select
+one with `--backend jax` or `--backend torch` (default: `jax`).
+
+| Script | Default environment |
+| ------ | ------------------- |
+| `scripts.ppo` | Atari `Pong-v5` |
+| `scripts.pqn` | Atari `Pong-v5` |
+| `scripts.fasttd3` | Playground `G1JoystickFlatTerrain` |
+| `scripts.fastsac` | Playground `G1JoystickFlatTerrain` |
+| `scripts.warpsac` | MuJoCo `HalfCheetah-v5` |
+| `scripts.v_simba` | DMC `cheetah-run-visual` |
+
+```bash
+python -m scripts.ppo --backend jax --env-id Breakout-v5
+python -m scripts.pqn --backend torch --env-id Pong-v5
+python -m scripts.fasttd3 --backend jax
+python -m scripts.fastsac --backend torch
+python -m scripts.warpsac --backend jax
+MUJOCO_GL=egl python -m scripts.v_simba --backend torch
+```
+
+Use `--help` to see the algorithm, environment, evaluation, and output options:
+
+```bash
+python -m scripts.ppo --help
+python -m scripts.pqn --backend torch --seed 2 --num-train-env 64 --total-timesteps 1000000
+python -m scripts.warpsac --backend torch --env-type dmc --env-id cheetah-run
+```
+
+The scripts inherit the algorithm config and call `Config.from_cli(...)`. Configuration precedence is
+**config defaults < environment presets < explicit CLI options**. Omitted CLI options keep the preset
+values. FastTD3 and FastSAC derive transition and replay counts from `num_train_env` unless those counts
+are explicitly supplied.
+
+Evaluation uses `--num-eval-envs 10` by default. If `--eval-episodes` is omitted, it runs one episode per
+actual evaluation environment. An explicit episode count must be a positive multiple of that environment
+count. Isaac Lab shares its training simulator with evaluation, so the actual count is `num_train_env`.
+
+V-Simba uses the config's `action_repeat` and `max_episode_steps`; its defaults are 2 and 1,000.
+Use a CPU task ending in `-visual`, and pass `--no-rescale-action` to keep native action bounds.
+For the other scripts, omitted `--action-repeat` and `--max-episode-steps` use the environment factory's
+defaults: 4 and 108,000 for Atari, 1 and 1,000 otherwise. `--record-video`, `--save-agent`, and
+`--save-onnx` enable the corresponding outputs. Default run names include the algorithm, backend, and task.
+
+### Python API
+
 Create the config, environments, and agent, then pass them to a runner. This PPO example uses the Atari preset,
 with one shared Nature CNN for actor and critic and gradient clipping over the complete actor-critic model:
 
@@ -227,13 +276,16 @@ FIRE on reset. envpool cannot render, so video recording uses a single gymnasium
 ## Project layout
 
 ```
-ApexRL/
-├── agents/     # one folder per algorithm: config.py + torch/ + jax/
-├── buffers/    # on-policy rollout buffers and off-policy replay buffers (torch & jax)
-├── envs/       # create_envs() and per-simulator wrappers
-├── model/      # shared layers, ensembles, policies, normalizers, backbones such as NatureCNN (torch & jax)
-├── runners/    # OnPolicyRunner / OffPolicyRunner training loops
-└── common/     # evaluation, logging, device helpers
+.
+├── scripts/        # CLI training entrypoints, one per algorithm
+├── main.py         # PQN JAX example
+└── ApexRL/
+    ├── agents/     # one folder per algorithm: config.py + torch/ + jax/
+    ├── buffers/    # on-policy rollout buffers and off-policy replay buffers (torch & jax)
+    ├── envs/       # create_envs() and per-simulator wrappers
+    ├── model/      # shared layers, ensembles, policies, normalizers, backbones such as NatureCNN (torch & jax)
+    ├── runners/    # OnPolicyRunner / OffPolicyRunner training loops
+    └── common/     # evaluation, logging, device helpers
 ```
 
 

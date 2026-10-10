@@ -9,11 +9,11 @@ class BQNConfig(BaseConfig):
     """Replay-based Atari C101 with joint BatchNorm and a target critic."""
 
     seed: int = 1
-    num_train_env: int = 128
+    num_train_env: int = 1
     total_timesteps: int = 10_000_000
     grad_step_per_interaction_step: float = 1.0  # Updates per vector environment step.
     buffer_size: int = 1_000_000
-    learning_starts: int = 100_000
+    learning_starts: int = 10_000
     batch_size: int = 256
     n_step: int = 3
     gamma: float = 0.99
@@ -28,7 +28,7 @@ class BQNConfig(BaseConfig):
     v_max: float = 5.0
     start_e: float = 1.0
     end_e: float = 0.01
-    exploration_steps: int = 1_000_000  # Global transitions, including replay warmup.
+    exploration_steps: int = 10_000_000 * 0.1  # Global transitions, including replay warmup.
     normalize_rewards: bool = True
     compute_type: Literal["float32", "bfloat16"] = "float32"
 
