@@ -37,17 +37,6 @@ class BQNConfig(BaseConfig):
     image_obs: bool = field(init=False, default=True)
     asymmetric_obs: bool = field(init=False, default=False)
 
-    def __post_init__(self) -> None:
-        if min(self.num_train_env, self.total_timesteps, self.batch_size, self.n_step, self.target_frequency, self.exploration_steps) < 1:
-            raise ValueError("Environment, training, batch, n-step, target and exploration counts must be positive")
-        if self.buffer_size < self.num_train_env or not 0 <= self.learning_starts <= self.buffer_size:
-            raise ValueError("Replay must hold the training environments and learning_starts transitions")
-        if self.num_bins < 2 or self.v_min >= self.v_max:
-            raise ValueError("Categorical support requires at least two bins and v_min < v_max")
-        if not 0 < self.tau <= 1 or not 0 <= self.gamma <= 1:
-            raise ValueError("tau must be in (0, 1] and gamma in [0, 1]")
-        if not 0 <= self.end_e <= self.start_e <= 1:
-            raise ValueError("Exploration requires 0 <= end_e <= start_e <= 1")
 
 
 __all__ = ["BQNConfig"]

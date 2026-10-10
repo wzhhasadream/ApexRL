@@ -18,8 +18,7 @@ class Args:
     time_out: float = 7200
     eval_count: int = 20
     n_trials: int = 20
-    study_name: str = "bqn-pong"
-    storage: str | None = "sqlite:///bqn_tuning.db"
+    storage_file: str | None = "./my_studies.log"
 
 
 args = tyro.cli(Args)
@@ -99,8 +98,8 @@ study = tune(
     sampler=optuna.samplers.TPESampler(n_startup_trials=5, seed=args.seed),
     direction="maximize",
     pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=1),
-    study_name=args.study_name,
-    storage=args.storage,
+    study_name=f"bqn-{args.env_id}",
+    storage_file=args.storage_file,
 )
 
 print(study.best_params)

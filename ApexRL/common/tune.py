@@ -15,9 +15,12 @@ def tune(
     seed: int = 1,
     direction: Literal["maximize", "minimize"] = "maximize",
     study_name: str | None = None,
-    storage: str | None = None,
+    storage: str | optuna.storages.BaseStorage | None = None,
+    storage_file: str | None = None,   # JournalStorage file path; takes precedence over storage
     timeout: float | None = None,
 ) -> optuna.Study:
+    if storage_file is not None:
+        storage = optuna.storages.JournalStorage(optuna.storages.journal.JournalFileBackend(storage_file))
     if sampler is None:
         sampler = optuna.samplers.TPESampler(seed=seed)
     study = optuna.create_study(
