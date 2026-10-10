@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,8 @@ class OffPolicyRunner:
         *,
         results_dir: str | Path,
         project: str,
-        run_name: str
+        run_name: str,
+        max_time: float | None = None
     ) -> None:
         self.train_envs = train_envs
         self.eval_envs = eval_envs
@@ -38,12 +40,12 @@ class OffPolicyRunner:
         self.results_dir = str(results_dir)
         self.project = project
         self.run_name = run_name
+        self.max_time = max_time
         self._grad_step_accumulator = 0.0
         if run_cfg.num_eval < 1 or run_cfg.num_log < 1:
             raise ValueError("num_eval and num_log must be positive")
         self.num_log = max(1, self.num_interaction_steps // run_cfg.num_log)
         self.num_eval = max(1, self.num_interaction_steps // run_cfg.num_eval)
-
 
 
         logger.init(
@@ -63,7 +65,7 @@ class OffPolicyRunner:
 
 
 
-    def _log_evaluation(self, global_step: int) -> None:
+    def _log_evaluation(self, global_step: int) -> dict[str, float]:
         info = evaluate_policy(
             self.agent.get_action,
             self.eval_envs,
@@ -84,6 +86,7 @@ class OffPolicyRunner:
             logger.save_agent(self.agent, global_step)
         if self.run_cfg.save_onnx:
             logger.save_onnx(self.agent, global_step)
+        return info
 
     def _real_next_observations(
         self,
@@ -108,10 +111,10 @@ class OffPolicyRunner:
         ):
             self.record_envs.close()
 
-    def run(self) -> None:
+    def run(self) -> float:
         np.random.seed(self.env_cfg.seed)
-        config = self.agent.cfg
 
+        start_time = time.monotonic()
         try:
             self._log_evaluation(0)
             observations, _ = self.train_envs.reset(seed=self.env_cfg.seed)
@@ -162,10 +165,11 @@ class OffPolicyRunner:
                         self._log_evaluation(global_step)
 
                 observations = next_observations
+                if self.max_time is not None and time.monotonic() - start_time >= self.max_time:
+                    break
 
-            self._log_evaluation(
-                self.num_interaction_steps * self.train_envs.num_envs
-            )
+            final_step = interaction_step * self.train_envs.num_envs
+            return self._log_evaluation(final_step)["avg_return"]
         finally:
             logger.finish()
             self._close_envs()

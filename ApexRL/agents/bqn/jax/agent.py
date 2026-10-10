@@ -7,7 +7,7 @@ import numpy as np
 import optax
 from flax import nnx
 from gymnasium.vector import VectorEnv
-
+from optax import linear_schedule
 from ....buffers.off_policy import Transition
 from ....buffers.off_policy.numpy_lazy_frame_buffer import NumpyLazyFrameBuffer
 from ....common.jax import default_device
@@ -44,6 +44,7 @@ class BQNAgent(OffPolicyAgent):
         nnx.update((self.critic, self.target_critic, self.reward_normalizer), jax.device_put(state, self.learner_device))
         self.replay_buffer = NumpyLazyFrameBuffer(self.observation_space, self.action_space, max_size=cfg.buffer_size,
                                                 linear_decay_step=cfg.decay_step, max_n_step=cfg.n_step, num_envs=self.num_train_env)
+        self.epsilon_schedule = linear_schedule(self.cfg.start_e, self.cfg.end_e, self.cfg.total_timesteps * self.cfg.exploration_frac)
 
     def _init_cached_fn(self) -> None:
         self._get_eval_fn = nnx.cached_partial(get_eval_action, self.critic)
@@ -52,9 +53,8 @@ class BQNAgent(OffPolicyAgent):
         self._update_reward_normalizer = nnx.cached_partial(update_reward_normalizer, self.reward_normalizer)
 
     @property
-    def epsilon(self) -> float:
-        fraction = min(self._num_steps * self.num_train_env / self.cfg.exploration_steps, 1.0)
-        return self.cfg.start_e + fraction * (self.cfg.end_e - self.cfg.start_e)
+    def epsilon(self) -> float: 
+        return self.epsilon_schedule(self._num_steps * self.num_train_env)
 
     def get_action(self, observations: jax.Array | np.ndarray) -> np.ndarray:
         observations = jax.device_put(observations, self.learner_device).reshape((-1, *self.observation_shape))

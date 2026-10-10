@@ -1,4 +1,5 @@
 from .evaluate import evaluate_policy, record_video
+from .tune import tune
 import numpy as np
 from typing import Any, Callable
 import math
@@ -20,7 +21,6 @@ def explicit_cli_fields(argv: Sequence[str] | None = None) -> set[str]:
         key = arg.split("=", 1)[0][2:].replace("-", "_")
         fields.add(key.removeprefix("no_"))
     return fields
-
 
 def add_prefix_to_keys(d: dict[str, Any], prefix: str) -> dict[str, Any]:
     return {f"{prefix}/{k}": v for k, v in d.items()}

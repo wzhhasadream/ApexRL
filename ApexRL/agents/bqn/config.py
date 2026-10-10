@@ -28,7 +28,7 @@ class BQNConfig(BaseConfig):
     v_max: float = 5.0
     start_e: float = 1.0
     end_e: float = 0.01
-    exploration_steps: int = 10_000_000 * 0.1  # Global transitions, including replay warmup.
+    exploration_frac: float = 0.1  # Global transitions, including replay warmup.
     normalize_rewards: bool = True
     compute_type: Literal["float32", "bfloat16"] = "float32"
 
