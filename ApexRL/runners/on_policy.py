@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +29,7 @@ class OnPolicyRunner:
         results_dir: str | Path,
         project: str,
         run_name: str,
+        max_time: float | None = None
     ) -> None:
         self.train_envs = train_envs
         self.eval_envs = eval_envs
@@ -38,6 +40,7 @@ class OnPolicyRunner:
         self.results_dir = str(results_dir)
         self.project = project
         self.run_name = run_name
+        self.max_time = max_time
         if run_cfg.num_eval < 1 or run_cfg.num_log < 1:
             raise ValueError("num_eval and num_log must be positive")
         self.num_rollout = self.total_timesteps // (
@@ -60,7 +63,7 @@ class OnPolicyRunner:
     def log_dir(self) -> str | None:
         return logger.get_run_dir() if logger.has_active_run() else None
 
-    def _log_evaluation(self, rollout_idx: int) -> None:
+    def _log_evaluation(self, rollout_idx: int) -> dict[str, float]:
         global_step = rollout_idx * self.train_envs.num_envs * self.run_cfg.rollout_steps
         info = evaluate_policy(
             self.agent.get_action,
@@ -82,6 +85,7 @@ class OnPolicyRunner:
             logger.save_agent(self.agent, global_step)
         if self.run_cfg.save_onnx:
             logger.save_onnx(self.agent, global_step)
+        return info
 
     def _close_envs(self) -> None:
         self.train_envs.close()
@@ -93,9 +97,10 @@ class OnPolicyRunner:
         ):
             self.record_envs.close()
 
-    def run(self) -> None:
+    def run(self) -> float:
         np.random.seed(self.env_cfg.seed)
 
+        start_time = time.monotonic()
         try:
             self._log_evaluation(0)
             observations, _ = self.train_envs.reset(seed=self.env_cfg.seed)
@@ -143,8 +148,10 @@ class OnPolicyRunner:
                     logger.log(update_info, global_step)
                 if rollout_idx % self.num_eval == 0:
                     self._log_evaluation(rollout_idx)
+                if self.max_time is not None and time.monotonic() - start_time >= self.max_time:
+                    break
 
-            self._log_evaluation(self.num_rollout)
+            return self._log_evaluation(rollout_idx)["avg_return"]
         finally:
             logger.finish()
             self._close_envs()
