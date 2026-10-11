@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from ...buffers import SequenceBatch
+from ...buffers import SequenceBatch, Batch
 
 
 def augment_observations(
@@ -43,3 +43,12 @@ def augment_sequencebatch(sequencebatch: SequenceBatch, key: jax.Array) -> Seque
     observations = augment_observations(obs_key, observations).reshape(shape)
     next_observations = augment_observations(next_obs_key, next_observations).reshape(shape)
     return sequencebatch._replace(observations=observations, next_observations=next_observations)
+
+
+def augment_batch(batch: Batch, key: jax.Array) -> Batch:
+    """Randomly shift each frame stack in a [B, F, H, W, C] batch."""
+    obs_key, next_obs_key = jax.random.split(key)
+    return batch._replace(
+        observations=augment_observations(obs_key, batch.observations),
+        next_observations=augment_observations(next_obs_key, batch.next_observations),
+    )

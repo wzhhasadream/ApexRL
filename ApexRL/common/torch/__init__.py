@@ -1,4 +1,4 @@
-from .augment import augment_observations, augment_sequencebatch
+from .augment import augment_batch, augment_observations, augment_sequencebatch
 from .device import default_device
 from .ppo_utils import adapt_lr, categorical_kl, diagonal_gaussian_kl
 from .zeta_dist import (

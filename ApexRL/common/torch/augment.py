@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from ...buffers import SequenceBatch
+from ...buffers import Batch, SequenceBatch
 
 
 def augment_observations(
@@ -67,4 +67,12 @@ def augment_sequencebatch(sequencebatch: SequenceBatch) -> SequenceBatch:
     return SequenceBatch(
         observations, sequencebatch.actions, sequencebatch.rewards,
         sequencebatch.terminations, sequencebatch.truncations, next_observations,
+    )
+
+
+def augment_batch(batch: Batch) -> Batch:
+    """Randomly shift each frame stack in a [B, F, H, W, C] batch."""
+    return Batch(
+        augment_observations(batch.observations), batch.actions, batch.rewards,
+        batch.dones, augment_observations(batch.next_observations), batch.discounts,
     )
