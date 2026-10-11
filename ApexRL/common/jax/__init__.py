@@ -1,5 +1,5 @@
 from .device import default_device, resolve_device
-from .augment import augment_observations, augment_sequencebatch
+from .augment import augment_batch, augment_observations, augment_sequencebatch
 from .ppo_utils import adapt_lr, categorical_kl, diagonal_gaussian_kl
 from .zeta_dist import (
     build_truncated_zeta_cdf,

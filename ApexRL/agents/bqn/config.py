@@ -30,6 +30,7 @@ class BQNConfig(BaseConfig):
     end_e: float = 0.01
     exploration_frac: float = 0.1  # Global transitions, including replay warmup.
     normalize_rewards: bool = True
+    augment_obs: bool = False
     compute_type: Literal["float32", "bfloat16"] = "float32"
 
     action_dim: int = field(init=False, default=0)

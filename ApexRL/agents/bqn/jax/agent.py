@@ -31,6 +31,7 @@ class BQNAgent(OffPolicyAgent):
         self.critic_grad_updates = 0
         self._init_train_state()
         self._init_cached_fn()
+        self.key = jax.random.PRNGKey(cfg.seed)
 
     def _init_train_state(self) -> None:
         cfg = self.cfg
@@ -56,6 +57,13 @@ class BQNAgent(OffPolicyAgent):
     def epsilon(self) -> float: 
         return self.epsilon_schedule(self._num_steps * self.num_train_env)
 
+
+    @property
+    def next_key(self) -> jax.Array:
+        self.key, next_key = jax.random.split(self.key, 2)
+        return next_key
+
+
     def get_action(self, observations: jax.Array | np.ndarray) -> np.ndarray:
         observations = jax.device_put(observations, self.learner_device).reshape((-1, *self.observation_shape))
         return np.asarray(self._get_eval_fn(observations))
@@ -79,7 +87,7 @@ class BQNAgent(OffPolicyAgent):
             raise RuntimeError("Replay buffer is not ready for an update")
         sequence = jax.device_put(self.replay_buffer.sample(self.cfg.batch_size, self.cfg.n_step), self.learner_device)
         self.critic_grad_updates += 1
-        info = self._update_fn(sequence, update_target=self.critic_grad_updates % self.cfg.target_frequency == 0)
+        info = self._update_fn(sequence, update_target=self.critic_grad_updates % self.cfg.target_frequency == 0, key=self.next_key)
         return {**{name: float(value) for name, value in jax.device_get(info).items()}, "training/epsilon": self.epsilon}
 
     def save(self, checkpoint_dir: str | Path) -> None:
