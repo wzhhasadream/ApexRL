@@ -1,3 +1,5 @@
+from typing import Literal
+
 from flax import nnx
 import jax
 import jax.numpy as jnp
@@ -452,32 +454,113 @@ class VSimbaVisionEncoder(nnx.Module):
 # ------------------------------- Nature CNN (Atari) ---------------
 
 
+class _Norm(nnx.Module):
+    """Normalize the channel axis (bn/ln) or passthrough (None)."""
+
+    def __init__(self, features: int, norm_type: Literal["bn", "ln", None], rngs: nnx.Rngs, dtype: Dtype) -> None:
+        self.norm_type = norm_type
+        if norm_type == "bn":
+            self.norm = nnx.BatchNorm(features, rngs=rngs, dtype=dtype)
+        elif norm_type == "ln":
+            self.norm = nnx.LayerNorm(features, rngs=rngs, dtype=dtype)
+        else:
+            self.norm = None
+
+    def __call__(self, x: jax.Array, training: bool = False) -> jax.Array:
+        if self.norm_type == "bn":
+            return self.norm(x, use_running_average=not training)
+        if self.norm_type == "ln":
+            return self.norm(x)
+        return x
+
+
 class NatureCNN(nnx.Module):
     """Nature DQN encoder (Mnih et al., 2015) for stacked Atari frames.
 
     Input [B, F, H, W, C] uint8 frames; output [B, hidden_dim] ReLU features.
-    Conv layers use orthogonal(sqrt(2)) init, as in CleanRL.
+    Conv layers use orthogonal(sqrt(2)) init, as in CleanRL; norm_type adds
+    bn/ln/None normalization before each activation.
     """
 
-    def __init__(self, observation_shape: tuple[int, int, int, int], rngs: nnx.Rngs, hidden_dim: int = 512, compute_type: Dtype = jnp.float32) -> None:
+    def __init__(self, observation_shape: tuple[int, int, int, int], rngs: nnx.Rngs, hidden_dim: int = 512, compute_type: Dtype = jnp.float32, norm_type: Literal["bn", "ln", None] = None) -> None:
         frames, height, width, channels = observation_shape
         self.compute_type = compute_type
         init = orthogonal(jnp.sqrt(2.0))
         self.conv1 = nnx.Conv(frames * channels, 32, (8, 8), strides=(4, 4), padding="VALID", kernel_init=init, rngs=rngs, dtype=compute_type)
         self.conv2 = nnx.Conv(32, 64, (4, 4), strides=(2, 2), padding="VALID", kernel_init=init, rngs=rngs, dtype=compute_type)
         self.conv3 = nnx.Conv(64, 64, (3, 3), strides=(1, 1), padding="VALID", kernel_init=init, rngs=rngs, dtype=compute_type)
-        flatten_dim = self._convs(jnp.zeros((1, height, width, frames * channels), compute_type)).shape[-1]
+        self.norm1 = _Norm(32, norm_type, rngs, compute_type)
+        self.norm2 = _Norm(64, norm_type, rngs, compute_type)
+        self.norm3 = _Norm(64, norm_type, rngs, compute_type)
+        flatten_dim = self._convs(jnp.zeros((1, height, width, frames * channels), compute_type), training=False).shape[-1]
         self.fc = nnx.Linear(flatten_dim, hidden_dim, kernel_init=init, rngs=rngs, dtype=compute_type)
+        self.norm_fc = _Norm(hidden_dim, norm_type, rngs, compute_type)
         self.out_dim = hidden_dim
 
-    def _convs(self, x: jax.Array) -> jax.Array:
-        x = jax.nn.relu(self.conv1(x))
-        x = jax.nn.relu(self.conv2(x))
-        x = jax.nn.relu(self.conv3(x))
+    def _convs(self, x: jax.Array, training: bool) -> jax.Array:
+        x = jax.nn.relu(self.norm1(self.conv1(x), training))
+        x = jax.nn.relu(self.norm2(self.conv2(x), training))
+        x = jax.nn.relu(self.norm3(self.conv3(x), training))
         return x.reshape(x.shape[0], -1)
 
-    def __call__(self, observations: jax.Array) -> jax.Array:
+    def __call__(self, observations: jax.Array, training: bool = False) -> jax.Array:
         # [B, F, H, W, C] uint8 -> channels-last [B, H, W, F * C] float in [0, 1]
         x = jnp.moveaxis(observations, 1, -2)
         x = x.reshape((*x.shape[:3], -1)).astype(self.compute_type) / 255.0
-        return jax.nn.relu(self.fc(self._convs(x)))
+        return jax.nn.relu(self.norm_fc(self.fc(self._convs(x, training)), training))
+
+
+# ------------------------------- HardMax CNN (Atari) ---------------
+
+
+class HardMaxBlock(nnx.Module):
+    """HardMax conv block: two parallel convs fused by a Hadamard product, then max-pooled.
+
+    Both branches apply normalization + GELU before the element-wise product; convs use
+    xavier_normal init, as in Kooi et al. (2025).
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, pool_size: int, pool_stride: int, rngs: nnx.Rngs, norm_type: Literal["bn", "ln", None], compute_type: Dtype = jnp.float32) -> None:
+        kernel_init = jax.nn.initializers.xavier_normal()
+        self.conv1 = nnx.Conv(in_channels, out_channels, (kernel_size, kernel_size), strides=(1, 1), padding="SAME", kernel_init=kernel_init, rngs=rngs, dtype=compute_type)
+        self.conv2 = nnx.Conv(in_channels, out_channels, (kernel_size, kernel_size), strides=(1, 1), padding="SAME", kernel_init=kernel_init, rngs=rngs, dtype=compute_type)
+        self.norm1 = _Norm(out_channels, norm_type, rngs, compute_type)
+        self.norm2 = _Norm(out_channels, norm_type, rngs, compute_type)
+        self.pool_size = pool_size
+        self.pool_stride = pool_stride
+
+    def __call__(self, x: jax.Array, training: bool = False) -> jax.Array:
+        x1 = jax.nn.gelu(self.norm1(self.conv1(x), training))
+        x2 = jax.nn.gelu(self.norm2(self.conv2(x), training))
+        return nnx.max_pool(x1 * x2, (self.pool_size, self.pool_size), strides=(self.pool_stride, self.pool_stride), padding="SAME")
+
+
+class HardMaxCNN(nnx.Module):
+    """Hadamax pixel encoder (Kooi et al., 2025) for stacked Atari frames.
+
+    Input [B, F, H, W, C] uint8 frames; output [B, out_dim] features.
+    Convs use xavier_normal init and bn/ln/None normalization + GELU before a
+    Hadamard-product fusion, as in github.com/Jacobkooi/Hadamax.
+    """
+
+    def __init__(self, observation_shape: tuple[int, int, int, int], rngs: nnx.Rngs, norm_type: Literal["bn", "ln", None] = "ln", compute_type: Dtype = jnp.float32) -> None:
+        frames, height, width, channels = observation_shape
+        in_channels = frames * channels
+        self.compute_type = compute_type
+        self.block1 = HardMaxBlock(in_channels, 32, 8, 4, 4, rngs, norm_type, compute_type)
+        self.block2 = HardMaxBlock(32, 64, 4, 2, 2, rngs, norm_type, compute_type)
+        self.block3 = HardMaxBlock(64, 64, 3, 3, 1, rngs, norm_type, compute_type)
+        dummy = self._blocks(jnp.zeros((1, height, width, in_channels), compute_type), training=False)
+        self.out_dim = int(dummy.size)
+
+    def _blocks(self, x: jax.Array, training: bool) -> jax.Array:
+        x = self.block1(x, training)
+        x = self.block2(x, training)
+        x = self.block3(x, training)
+        return x.reshape(x.shape[0], -1)
+
+    def __call__(self, observations: jax.Array, training: bool = False) -> jax.Array:
+        # [B, F, H, W, C] uint8 -> channels-last [B, H, W, F * C] float in [0, 1]
+        x = jnp.moveaxis(observations, 1, -2)
+        x = x.reshape((*x.shape[:3], -1)).astype(self.compute_type) / 255.0
+        return self._blocks(x, training)

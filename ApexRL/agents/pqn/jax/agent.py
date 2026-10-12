@@ -61,6 +61,7 @@ class PQNAgent(OnPolicyAgent):
             hidden_dim=cfg.hidden_dim,
             compute_type=compute_type,
             norm_type=cfg.norm_type,
+            encoder=cfg.encoder,
         )
         self.critic = Network(
             model,
