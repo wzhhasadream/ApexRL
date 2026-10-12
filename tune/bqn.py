@@ -10,12 +10,12 @@ from ApexRL.envs import create_envs
 from ApexRL.runners import EnvironmentConfig, OffPolicyRunner, OffPolicyRunnerConfig
 
 @dataclasses.dataclass
-class Args:
+class Args(BQNConfig):
     env_type: str = "atari"
     env_id: str = "Pong-v5"
     seed: int = 1
     total_timesteps: int = int(5e7)
-    time_out: float = 7200
+    time_out: float = 3600
     eval_count: int = 20
     n_trials: int = 20
     storage_file: str | None = "./my_studies.log"
@@ -27,16 +27,22 @@ args = tyro.cli(Args)
 def sample_bqn_params(trial: optuna.Trial) -> dict:
     params = {
         "num_train_env": trial.suggest_categorical(
-            "num_train_env", [128, 256, 512]
+            "num_train_env", [64, 128]
         ),
         "batch_size": trial.suggest_categorical(
-            "batch_size", [32, 64, 128, 256]
+            "batch_size", [256, 512]
         ),
         "buffer_size": trial.suggest_categorical(
-            "buffer_size", [int(1e6), int(2e6), int(4e6), int(5e6)]
+            "buffer_size", [int(5e6), int(6e6), int(7e6)]
         ),
         "grad_step_per_interaction_step": trial.suggest_categorical(
-            "grad_step_per_interaction_step", [0.5, 1, 2, 4]
+            "grad_step_per_interaction_step", [0.25, 0.5, 1]
+        ),
+        "encoder": trial.suggest_categorical(
+            "encoder", ["hardmax", "nature"]
+        ),
+        "norm_type": trial.suggest_categorical(
+            "norm_type", ["ln", "bn", None]
         ),
     }
     return params
@@ -44,12 +50,11 @@ def sample_bqn_params(trial: optuna.Trial) -> dict:
 
 def objective(trial: optuna.Trial):
     params = sample_bqn_params(trial)
-    cfg = BQNConfig.from_env(
+    cfg = BQNConfig.from_cli(
+        args,
         args.env_type,
         args.env_id,
-        seed=args.seed,
-        total_timesteps=args.total_timesteps,
-        **params,
+        **params
     )
 
     train_envs, eval_envs, record_envs = create_envs(
@@ -85,7 +90,7 @@ def objective(trial: optuna.Trial):
         env_cfg=env_cfg,
         run_cfg=run_cfg,
         results_dir="Results",
-        project="ApexRL-Tune",
+        project=f"ApexRL-Tune-{args.env_id}",
         run_name=f"bqn-trial-{trial.number}",
         max_time=args.time_out
     )
