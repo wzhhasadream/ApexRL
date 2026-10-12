@@ -50,11 +50,15 @@ class BaseConfig:
         return cls(**values)
 
     @classmethod
-    def from_cli(cls: type[C], args: Any, env_type: str, env_name: str | None = None, argv: Sequence[str] | None = None) -> C:
-        """Build a config from parsed CLI args: only options typed on the command line override the presets."""
+    def from_cli(cls: type[C], args: Any, env_type: str, env_name: str | None = None, argv: Sequence[str] | None = None, **overrides: Any) -> C:
+        """Build a config from parsed CLI args plus explicit keyword overrides.
+
+        Only options typed on the command line override the presets; keyword
+        overrides beat everything, so they can carry sampled hyperparameters.
+        """
         fields = {f.name for f in dataclasses.fields(cls)}
         explicit = explicit_cli_fields(argv) & fields
-        return cls.from_env(env_type, env_name, **{name: getattr(args, name) for name in explicit})
+        return cls.from_env(env_type, env_name, **{**{name: getattr(args, name) for name in explicit}, **overrides})
 
     def replace(self: C, **changes: Any) -> C:
         return dataclasses.replace(self, **changes)
