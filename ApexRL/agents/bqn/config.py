@@ -23,6 +23,7 @@ class BQNConfig(BaseConfig):
     tau: float = 0.005
     hidden_dim: int = 512
     norm_type: Literal["bn", "ln", None] = "bn"
+    encoder: Literal["nature", "hardmax"] = "nature"
     num_bins: int = 101
     v_min: float = -5.0
     v_max: float = 5.0

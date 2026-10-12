@@ -37,7 +37,7 @@ class BQNAgent(OffPolicyAgent):
         cfg = self.cfg
         model = Critic(self.observation_shape, self.action_dim, nnx.Rngs(cfg.seed), hidden_dim=cfg.hidden_dim,
                        compute_type=getattr(jnp, cfg.compute_type), norm_type=cfg.norm_type,
-                       num_bins=cfg.num_bins, v_min=cfg.v_min, v_max=cfg.v_max)
+                       num_bins=cfg.num_bins, v_min=cfg.v_min, v_max=cfg.v_max, encoder=cfg.encoder)
         self.critic = Network(model, nnx.Optimizer(model, optax.adam(cfg.learning_rate), wrt=nnx.Param), forward_name="select_action")
         self.target_critic = Network(deepcopy(model), source_model=model, tau=cfg.tau)
         self.reward_normalizer = Network(RewardNormalizer(self.num_train_env, cfg.gamma)) if cfg.normalize_rewards else None
