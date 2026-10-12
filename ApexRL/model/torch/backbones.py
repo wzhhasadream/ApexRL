@@ -1,4 +1,5 @@
 import math
+from typing import Literal
 
 import torch
 import torch.nn as nn
@@ -553,29 +554,123 @@ class VSimbaVisionEncoder(nn.Module):
 # ------------------------------- Nature CNN (Atari) ---------------
 
 
+class _Norm(nn.Module):
+    """Normalize the channel axis (bn/ln) or passthrough (None)."""
+
+    def __init__(self, features: int, norm_type: Literal["bn", "ln", None]) -> None:
+        super().__init__()
+        self.norm_type = norm_type
+        if norm_type == "bn":
+            self.norm = BatchNorm1d(features)
+        elif norm_type == "ln":
+            self.norm = nn.LayerNorm(features)
+        else:
+            self.norm = None
+
+    def forward(self, x: torch.Tensor, training: bool = False) -> torch.Tensor:
+        if self.norm_type == "bn":
+            return self.norm(x, training=training)
+        if self.norm_type == "ln":
+            return self.norm(x.movedim(1, -1)).movedim(-1, 1)
+        return x
+
+
 class NatureCNN(nn.Module):
     """Nature DQN encoder (Mnih et al., 2015) for stacked Atari frames.
 
     Input [B, F, H, W, C] uint8 frames; output [B, hidden_dim] ReLU features.
-    Conv layers use orthogonal(sqrt(2)) init, as in CleanRL.
+    Conv layers use orthogonal(sqrt(2)) init, as in CleanRL; norm_type adds
+    bn/ln/None normalization before each activation.
     """
 
-    def __init__(self, observation_shape: tuple[int, int, int, int], hidden_dim: int = 512) -> None:
+    def __init__(self, observation_shape: tuple[int, int, int, int], hidden_dim: int = 512, norm_type: Literal["bn", "ln", None] = None) -> None:
         super().__init__()
         frames, height, width, channels = observation_shape
         in_channels = frames * channels
-        self.convs = nn.Sequential(nn.Conv2d(in_channels, 32, 8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, 3), nn.ReLU(), nn.Flatten())
-        for layer in self.convs:
-            if isinstance(layer, nn.Conv2d):
-                nn.init.orthogonal_(layer.weight, math.sqrt(2))
-                nn.init.zeros_(layer.bias)
+        self.conv1 = nn.Conv2d(in_channels, 32, 8, stride=4)
+        self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
+        self.conv3 = nn.Conv2d(64, 64, 3)
+        self.norm1 = _Norm(32, norm_type)
+        self.norm2 = _Norm(64, norm_type)
+        self.norm3 = _Norm(64, norm_type)
+        for conv in (self.conv1, self.conv2, self.conv3):
+            nn.init.orthogonal_(conv.weight, math.sqrt(2))
+            nn.init.zeros_(conv.bias)
         with torch.no_grad():
-            flatten_dim = self.convs(torch.zeros(1, in_channels, height, width)).shape[-1]
+            flatten_dim = self._convs(torch.zeros(1, in_channels, height, width), training=False).shape[-1]
         self.fc = Linear(flatten_dim, hidden_dim)
         nn.init.orthogonal_(self.fc.weight, math.sqrt(2))
+        self.norm_fc = _Norm(hidden_dim, norm_type)
         self.out_dim = hidden_dim
 
-    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+    def _convs(self, x: torch.Tensor, training: bool) -> torch.Tensor:
+        x = F.relu(self.norm1(self.conv1(x), training))
+        x = F.relu(self.norm2(self.conv2(x), training))
+        x = F.relu(self.norm3(self.conv3(x), training))
+        return x.flatten(1)
+
+    def forward(self, observations: torch.Tensor, training: bool = False) -> torch.Tensor:
         # [B, F, H, W, C] uint8 -> [B, F * C, H, W] float in [0, 1]
         x = observations.permute(0, 1, 4, 2, 3).flatten(1, 2).float() / 255.0
-        return F.relu(self.fc(self.convs(x)))
+        return F.relu(self.norm_fc(self.fc(self._convs(x, training)), training))
+
+
+# ------------------------------- HardMax CNN (Atari) ---------------
+
+
+class HardMaxBlock(nn.Module):
+    """HardMax conv block: two parallel convs fused by a Hadamard product, then max-pooled.
+
+    Both branches apply normalization + GELU before the element-wise product; convs use
+    xavier_normal init, as in Kooi et al. (2025).
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, pool_size: int, pool_stride: int, pool_padding: int, norm_type: Literal["bn", "ln", None]) -> None:
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2)
+        self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2)
+        self.norm1 = _Norm(out_channels, norm_type)
+        self.norm2 = _Norm(out_channels, norm_type)
+        self.pool_size = pool_size
+        self.pool_stride = pool_stride
+        self.pool_padding = pool_padding
+        for conv in (self.conv1, self.conv2):
+            nn.init.xavier_normal_(conv.weight)
+            if conv.bias is not None:
+                nn.init.zeros_(conv.bias)
+
+    def forward(self, x: torch.Tensor, training: bool = False) -> torch.Tensor:
+        x1 = F.gelu(self.norm1(self.conv1(x), training))
+        x2 = F.gelu(self.norm2(self.conv2(x), training))
+        return F.max_pool2d(x1 * x2, self.pool_size, stride=self.pool_stride, padding=self.pool_padding)
+
+
+class HardMaxCNN(nn.Module):
+    """Hadamax pixel encoder (Kooi et al., 2025) for stacked Atari frames.
+
+    Input [B, F, H, W, C] uint8 frames; output [B, out_dim] features.
+    Convs use xavier_normal init and bn/ln/None normalization + GELU before a
+    Hadamard-product fusion, as in github.com/Jacobkooi/Hadamax.
+    """
+
+    def __init__(self, observation_shape: tuple[int, int, int, int], norm_type: Literal["bn", "ln", None] = "ln") -> None:
+        super().__init__()
+        frames, height, width, channels = observation_shape
+        in_channels = frames * channels
+        self.block1 = HardMaxBlock(in_channels, 32, 8, 4, 4, 0, norm_type)
+        self.block2 = HardMaxBlock(32, 64, 4, 2, 2, 0, norm_type)
+        self.block3 = HardMaxBlock(64, 64, 3, 3, 1, 1, norm_type)
+        with torch.no_grad():
+            dummy = self._blocks(torch.zeros(1, in_channels, height, width), training=False)
+            self.out_dim = int(dummy.numel())
+
+    def _blocks(self, x: torch.Tensor, training: bool) -> torch.Tensor:
+        x = self.block1(x, training)
+        x = self.block2(x, training)
+        x = self.block3(x, training)
+        return x.reshape(x.shape[0], -1)
+
+    def forward(self, observations: torch.Tensor, training: bool = False) -> torch.Tensor:
+        # [B, F, H, W, C] uint8 -> [B, F * C, H, W] float in [0, 1]
+        x = observations.permute(0, 1, 4, 2, 3).flatten(1, 2).float() / 255.0
+        return self._blocks(x, training)
