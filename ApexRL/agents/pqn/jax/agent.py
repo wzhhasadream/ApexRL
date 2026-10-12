@@ -47,8 +47,7 @@ class PQNAgent(OnPolicyAgent):
             cfg.total_timesteps // (self.num_train_env * cfg.rollout_steps),
         )
         num_updates = num_rollouts * cfg.num_minibatches * cfg.update_epochs
-        epsilon_rollouts = max(1, int(num_rollouts * 0.1))
-        self.epsilon_schedule = optax.linear_schedule(cfg.start_e, cfg.end_e, epsilon_rollouts)
+        self.epsilon_schedule = optax.linear_schedule(cfg.start_e, cfg.end_e, num_rollouts * 0.1)
         self._epsilon = jax.device_put(jnp.asarray(cfg.start_e, jnp.float32), self.learner_device)
         optimizer_schedule = (
             optax.linear_schedule(cfg.learning_rate, 0.0, num_updates)

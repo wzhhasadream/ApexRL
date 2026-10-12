@@ -58,10 +58,6 @@ class PQNAgent(OnPolicyAgent):
     def _progress(self) -> float:
         return min(1.0, self._current_rollout_idx / self._num_rollouts)
 
-    @property
-    def _epsilon_progress(self) -> float:
-        return min(1.0, self._current_rollout_idx / self._num_rollouts * 0.1)
-
     def get_action(self, observation: np.ndarray | torch.Tensor) -> np.ndarray:
         return get_eval_action(self.critic, self._observations(observation)).cpu().numpy()
 
@@ -103,7 +99,7 @@ class PQNAgent(OnPolicyAgent):
         means = torch.stack(infos).mean(0).tolist()
 
         self._current_rollout_idx += 1
-        self._epsilon.fill_(cfg.start_e + self._epsilon_progress * (cfg.end_e - cfg.start_e))
+        self._epsilon.fill_(cfg.start_e + min(1.0, self._progress / 0.1) * (cfg.end_e - cfg.start_e))
         self.replay_buffer.reset()
         return dict(zip(info.keys(), means))
 
