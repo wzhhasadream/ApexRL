@@ -30,10 +30,10 @@ def sample_bqn_params(trial: optuna.Trial) -> dict:
             "num_train_env", [64, 128]
         ),
         "batch_size": trial.suggest_categorical(
-            "batch_size", [256, 512]
+            "batch_size", [256, 512, 1024]
         ),
         "buffer_size": trial.suggest_categorical(
-            "buffer_size", [int(5e6), int(6e6), int(7e6)]
+            "buffer_size", [int(4e6), int(5e6), int(6e6), int(7e6)]
         ),
         "grad_step_per_interaction_step": trial.suggest_categorical(
             "grad_step_per_interaction_step", [0.25, 0.5, 1]
