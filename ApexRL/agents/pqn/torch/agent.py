@@ -99,7 +99,7 @@ class PQNAgent(OnPolicyAgent):
         means = torch.stack(infos).mean(0).tolist()
 
         self._current_rollout_idx += 1
-        self._epsilon.fill_(cfg.start_e + self._progress * (cfg.end_e - cfg.start_e))
+        self._epsilon.fill_(cfg.start_e + min(1.0, self._progress / 0.1) * (cfg.end_e - cfg.start_e))
         self.replay_buffer.reset()
         return dict(zip(info.keys(), means))
 

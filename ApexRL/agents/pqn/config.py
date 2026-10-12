@@ -15,7 +15,7 @@ class PQNConfig(BaseConfig):
     num_train_env: int = 128
     rollout_steps: int = 32
     learning_rate: float = 2.5e-4
-    anneal_lr: bool = True
+    anneal_lr: bool = False
     gamma: float = 0.99
     q_lambda: float = 0.65
     num_minibatches: int = 32
