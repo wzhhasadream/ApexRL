@@ -28,7 +28,7 @@ class Critic(nnx.Module):
         self.action_dim = action_dim
         self.policy = DiscreteQGreedyPolicy()
         if encoder == "hardmax":
-            self.encoder = HardMaxCNN(observation_shape, rngs, norm_type, compute_type)
+            self.encoder = HardMaxCNN(observation_shape, rngs, hidden_dim, compute_type, norm_type)
         else:
             self.encoder = NatureCNN(observation_shape, rngs, hidden_dim, compute_type, norm_type)
         self.head = nnx.Linear(

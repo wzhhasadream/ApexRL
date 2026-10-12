@@ -538,20 +538,22 @@ class HardMaxBlock(nnx.Module):
 class HardMaxCNN(nnx.Module):
     """Hadamax pixel encoder (Kooi et al., 2025) for stacked Atari frames.
 
-    Input [B, F, H, W, C] uint8 frames; output [B, out_dim] features.
+    Input [B, F, H, W, C] uint8 frames; output [B, hidden_dim] GELU features.
     Convs use xavier_normal init and bn/ln/None normalization + GELU before a
-    Hadamard-product fusion, as in github.com/Jacobkooi/Hadamax.
+    Hadamard-product fusion; the head fc uses he_normal, as in github.com/Jacobkooi/Hadamax.
     """
 
-    def __init__(self, observation_shape: tuple[int, int, int, int], rngs: nnx.Rngs, norm_type: Literal["bn", "ln", None] = "ln", compute_type: Dtype = jnp.float32) -> None:
+    def __init__(self, observation_shape: tuple[int, int, int, int], rngs: nnx.Rngs, hidden_dim: int = 512, compute_type: Dtype = jnp.float32, norm_type: Literal["bn", "ln", None] = "ln") -> None:
         frames, height, width, channels = observation_shape
         in_channels = frames * channels
         self.compute_type = compute_type
         self.block1 = HardMaxBlock(in_channels, 32, 8, 4, 4, rngs, norm_type, compute_type)
         self.block2 = HardMaxBlock(32, 64, 4, 2, 2, rngs, norm_type, compute_type)
         self.block3 = HardMaxBlock(64, 64, 3, 3, 1, rngs, norm_type, compute_type)
-        dummy = self._blocks(jnp.zeros((1, height, width, in_channels), compute_type), training=False)
-        self.out_dim = int(dummy.size)
+        flatten_dim = self._blocks(jnp.zeros((1, height, width, in_channels), compute_type), training=False).shape[-1]
+        self.fc = nnx.Linear(flatten_dim, hidden_dim, kernel_init=nnx.initializers.he_normal(), rngs=rngs, dtype=compute_type)
+        self.norm_fc = _Norm(hidden_dim, norm_type, rngs, compute_type)
+        self.out_dim = hidden_dim
 
     def _blocks(self, x: jax.Array, training: bool) -> jax.Array:
         x = self.block1(x, training)
@@ -563,4 +565,4 @@ class HardMaxCNN(nnx.Module):
         # [B, F, H, W, C] uint8 -> channels-last [B, H, W, F * C] float in [0, 1]
         x = jnp.moveaxis(observations, 1, -2)
         x = x.reshape((*x.shape[:3], -1)).astype(self.compute_type) / 255.0
-        return self._blocks(x, training)
+        return jax.nn.gelu(self.norm_fc(self.fc(self._blocks(x, training)), training))

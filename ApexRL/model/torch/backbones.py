@@ -648,12 +648,12 @@ class HardMaxBlock(nn.Module):
 class HardMaxCNN(nn.Module):
     """Hadamax pixel encoder (Kooi et al., 2025) for stacked Atari frames.
 
-    Input [B, F, H, W, C] uint8 frames; output [B, out_dim] features.
+    Input [B, F, H, W, C] uint8 frames; output [B, hidden_dim] GELU features.
     Convs use xavier_normal init and bn/ln/None normalization + GELU before a
-    Hadamard-product fusion, as in github.com/Jacobkooi/Hadamax.
+    Hadamard-product fusion; the head fc uses he_normal, as in github.com/Jacobkooi/Hadamax.
     """
 
-    def __init__(self, observation_shape: tuple[int, int, int, int], norm_type: Literal["bn", "ln", None] = "ln") -> None:
+    def __init__(self, observation_shape: tuple[int, int, int, int], hidden_dim: int = 512, norm_type: Literal["bn", "ln", None] = "ln") -> None:
         super().__init__()
         frames, height, width, channels = observation_shape
         in_channels = frames * channels
@@ -661,8 +661,12 @@ class HardMaxCNN(nn.Module):
         self.block2 = HardMaxBlock(32, 64, 4, 2, 2, 0, norm_type)
         self.block3 = HardMaxBlock(64, 64, 3, 3, 1, 1, norm_type)
         with torch.no_grad():
-            dummy = self._blocks(torch.zeros(1, in_channels, height, width), training=False)
-            self.out_dim = int(dummy.numel())
+            flatten_dim = self._blocks(torch.zeros(1, in_channels, height, width), training=False).shape[-1]
+        self.fc = nn.Linear(flatten_dim, hidden_dim)
+        nn.init.kaiming_normal_(self.fc.weight, mode="fan_in", nonlinearity="relu")
+        nn.init.zeros_(self.fc.bias)
+        self.norm_fc = _Norm(hidden_dim, norm_type)
+        self.out_dim = hidden_dim
 
     def _blocks(self, x: torch.Tensor, training: bool) -> torch.Tensor:
         x = self.block1(x, training)
@@ -673,4 +677,4 @@ class HardMaxCNN(nn.Module):
     def forward(self, observations: torch.Tensor, training: bool = False) -> torch.Tensor:
         # [B, F, H, W, C] uint8 -> [B, F * C, H, W] float in [0, 1]
         x = observations.permute(0, 1, 4, 2, 3).flatten(1, 2).float() / 255.0
-        return self._blocks(x, training)
+        return F.gelu(self.norm_fc(self.fc(self._blocks(x, training)), training))
