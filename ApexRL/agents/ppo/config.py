@@ -46,8 +46,7 @@ class PPOConfig(BaseConfig):
     image_obs: bool = field(init=False, default=False)
 
     ENV_TYPE_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {
-        # CleanRL ppo_atari_envpool.py
-        "atari": dict(total_timesteps=int(5e7), num_train_env=2048, rollout_steps=32, lr=2.5e-4, anneal_lr=False, desired_kl=0.01, num_epochs=4, num_mini_batches=4, clip_coef=0.2, value_coef=0.5, entropy_coef=0.01, max_grad_norm=1, activation="elu"),
+        "envpool_sim": dict(total_timesteps=int(5e7), num_train_env=2048, rollout_steps=32, lr=2.5e-4, anneal_lr=False, desired_kl=0.01, num_epochs=4, num_mini_batches=4, clip_coef=0.2, value_coef=0.5, entropy_coef=0.01, max_grad_norm=1, activation="elu"),
         "cpu_sim": dict(total_timesteps=4_000_000, num_train_env=1, rollout_steps=2_048, num_mini_batches=32, num_epochs=10, compute_type="float32"),
         "gpu_sim": dict(total_timesteps=100_000_000, num_train_env=4_096, rollout_steps=24, num_mini_batches=4, num_epochs=5, compute_type="bfloat16"),
     }

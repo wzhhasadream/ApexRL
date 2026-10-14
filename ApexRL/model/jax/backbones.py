@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 from flax.typing import Dtype
 
-from .layer import orthogonal
+from .layer import BatchNorm, BatchRenorm, LayerNorm, RMSNorm, orthogonal
 
 
 # ------------------------------- FlashSAC state components ---------------
@@ -22,8 +22,8 @@ class FlashSACEmbedder(nnx.Module):
         use_bias: bool = True,
         compute_type: Dtype = jnp.float32,
     ):
-        self.norm = nnx.BatchNorm(
-            num_features=input_dim,
+        self.norm = BatchNorm(
+            feature_shape=input_dim,
             rngs=rngs,
             dtype=compute_type,
         )
@@ -37,7 +37,7 @@ class FlashSACEmbedder(nnx.Module):
         )
 
     def __call__(self, x: jax.Array, training: bool) -> jax.Array:
-        x = self.norm(x, use_running_average=not training)
+        x = self.norm(x, training=training)
         return self.w(x)
 
 
@@ -68,13 +68,13 @@ class FlashSACBlock(nnx.Module):
             use_bias=use_bias,
             dtype=compute_type,
         )
-        self.norm1 = nnx.BatchNorm(
-            num_features=hidden_dim * expansion,
+        self.norm1 = BatchNorm(
+            feature_shape=hidden_dim * expansion,
             rngs=rngs,
             dtype=compute_type,
         )
-        self.norm2 = nnx.BatchNorm(
-            num_features=hidden_dim,
+        self.norm2 = BatchNorm(
+            feature_shape=hidden_dim,
             rngs=rngs,
             dtype=compute_type,
         )
@@ -82,10 +82,10 @@ class FlashSACBlock(nnx.Module):
     def __call__(self, x: jax.Array, training: bool) -> jax.Array:
         residual = x
         x = self.w1(x)
-        x = self.norm1(x, use_running_average=not training)
+        x = self.norm1(x, training=training)
         x = nnx.relu(x)
         x = self.w2(x)
-        x = self.norm2(x, use_running_average=not training)
+        x = self.norm2(x, training=training)
         return residual + nnx.relu(x)
 
 
@@ -114,7 +114,7 @@ class FlashSACEncoder(nnx.Module):
             )
             for _ in range(num_blocks)
         ]
-        self.rms = nnx.RMSNorm(
+        self.rms = RMSNorm(
             hidden_dim, rngs=rngs, dtype=compute_type
         )
 
@@ -209,7 +209,7 @@ class DRQVisionEncoder(nnx.Module):
             use_bias=use_bias,
             dtype=compute_type,
         )
-        self.ln = nnx.LayerNorm(
+        self.ln = LayerNorm(
             latent_dim,
             epsilon=1e-6,
             rngs=rngs,
@@ -308,7 +308,7 @@ class DRQV2VisionEncoder(nnx.Module):
             use_bias=use_bias,
             dtype=compute_type,
         )
-        self.ln = nnx.LayerNorm(
+        self.ln = LayerNorm(
             latent_dim,
             epsilon=1e-6,
             rngs=rngs,
@@ -366,7 +366,7 @@ class VSimbaEmbedder(nnx.Module):
 
     def __init__(self, input_dim: int, hidden_dim: int, rngs: nnx.Rngs, use_bias: bool = True, compute_type: Dtype = jnp.float32):
         self.w = nnx.Linear(input_dim, hidden_dim, rngs=rngs, kernel_init=orthogonal(1), use_bias=use_bias, dtype=compute_type)
-        self.feature_norm = nnx.LayerNorm(hidden_dim, epsilon=1e-6, rngs=rngs, dtype=compute_type)
+        self.feature_norm = LayerNorm(hidden_dim, epsilon=1e-6, rngs=rngs, dtype=compute_type)
 
     def __call__(self, x: jax.Array) -> jax.Array:
         return self.feature_norm(self.w(x))
@@ -377,7 +377,7 @@ class VSimbaMLPBlock(nnx.Module):
 
     def __init__(self, hidden_dim: int, rngs: nnx.Rngs, expansion: int = 4, use_bias: bool = True, compute_type: Dtype = jnp.float32):
         self.mlp = VSimbaMLP(hidden_dim, hidden_dim * expansion, hidden_dim, rngs, use_bias, compute_type)
-        self.feature_norm = nnx.LayerNorm(hidden_dim, epsilon=1e-6, rngs=rngs, dtype=compute_type)
+        self.feature_norm = LayerNorm(hidden_dim, epsilon=1e-6, rngs=rngs, dtype=compute_type)
 
     def __call__(self, x: jax.Array) -> jax.Array:
         return x + self.mlp(self.feature_norm(x))
@@ -389,7 +389,7 @@ class VSimbaEncoder(nnx.Module):
     def __init__(self, input_dim: int, num_blocks: int, hidden_dim: int, rngs: nnx.Rngs, expansion: int = 4, use_bias: bool = True, compute_type: Dtype = jnp.float32):
         self.embedder = VSimbaEmbedder(input_dim, hidden_dim, rngs, use_bias, compute_type)
         self.blocks = [VSimbaMLPBlock(hidden_dim, rngs, expansion, use_bias, compute_type) for _ in range(num_blocks)]
-        self.post_norm = nnx.LayerNorm(hidden_dim, epsilon=1e-6, rngs=rngs, dtype=compute_type)
+        self.post_norm = LayerNorm(hidden_dim, epsilon=1e-6, rngs=rngs, dtype=compute_type)
 
     def __call__(self, x: jax.Array) -> jax.Array:
         x = self.embedder(x)
@@ -409,8 +409,8 @@ class VSimbaConvBlock(nnx.Module):
             kernel_init=orthogonal(1), use_bias=use_bias, dtype=compute_type,
         )
         self.mlp = VSimbaMLP(num_channels, num_channels * expansion, num_channels, rngs, use_bias, compute_type)
-        self.feature_norm = nnx.LayerNorm(num_channels, epsilon=1e-6, rngs=rngs, dtype=compute_type)
-        self.ds_feature_norm = nnx.LayerNorm(num_channels, epsilon=1e-6, rngs=rngs, dtype=compute_type)
+        self.feature_norm = LayerNorm(num_channels, epsilon=1e-6, rngs=rngs, dtype=compute_type)
+        self.ds_feature_norm = LayerNorm(num_channels, epsilon=1e-6, rngs=rngs, dtype=compute_type)
 
     def __call__(self, x: jax.Array) -> jax.Array:
         x = x + self.mlp(self.feature_norm(self.conv(x)))
@@ -427,12 +427,12 @@ class VSimbaVisionEncoder(nnx.Module):
     ):
         frame_count, height, width, channels = input_shape
         in_channels = frame_count * channels
-        self.input_norm = nnx.LayerNorm(in_channels, epsilon=1e-6, rngs=rngs, dtype=compute_type)
+        self.input_norm = LayerNorm(in_channels, epsilon=1e-6, rngs=rngs, dtype=compute_type)
         self.stem_conv = nnx.Conv(
             in_channels, num_channels, kernel_size=(3, 3), strides=(2, 2), padding=((1, 1), (1, 1)),
             rngs=rngs, kernel_init=orthogonal(1), use_bias=use_bias, dtype=compute_type,
         )
-        self.stem_norm = nnx.LayerNorm(num_channels, epsilon=1e-6, rngs=rngs, dtype=compute_type)
+        self.stem_norm = LayerNorm(num_channels, epsilon=1e-6, rngs=rngs, dtype=compute_type)
         self.blocks = [VSimbaConvBlock(num_channels, rngs, conv_kernel_size, use_bias=use_bias, compute_type=compute_type) for _ in range(num_blocks)]
         height = (height + 1) // 2 // (2 ** (num_blocks + 1))
         width = (width + 1) // 2 // (2 ** (num_blocks + 1))
@@ -455,23 +455,17 @@ class VSimbaVisionEncoder(nnx.Module):
 
 
 class _Norm(nnx.Module):
-    """Normalize the channel axis (bn/ln) or passthrough (None)."""
+    """Feature-last normalization; BN/BRN reduce batch axes, LN/RMSNorm reduce feature axes."""
 
-    def __init__(self, features: int, norm_type: Literal["bn", "ln", None], rngs: nnx.Rngs, dtype: Dtype) -> None:
+    def __init__(self, feature_shape: int | tuple[int, ...], norm_type: Literal["bn", "brn", "ln", "rms"] | None, rngs: nnx.Rngs, dtype: Dtype) -> None:
         self.norm_type = norm_type
-        if norm_type == "bn":
-            self.norm = nnx.BatchNorm(features, rngs=rngs, dtype=dtype)
-        elif norm_type == "ln":
-            self.norm = nnx.LayerNorm(features, rngs=rngs, dtype=dtype)
-        else:
-            self.norm = None
+        norm_cls = {"bn": BatchNorm, "brn": BatchRenorm, "ln": LayerNorm, "rms": RMSNorm, None: None}[norm_type]
+        self.norm = norm_cls(feature_shape, rngs=rngs, dtype=dtype) if norm_cls is not None else None
 
     def __call__(self, x: jax.Array, training: bool = False) -> jax.Array:
-        if self.norm_type == "bn":
-            return self.norm(x, use_running_average=not training)
-        if self.norm_type == "ln":
-            return self.norm(x)
-        return x
+        if self.norm is None:
+            return x
+        return self.norm(x, training=training) if self.norm_type in ("bn", "brn") else self.norm(x)
 
 
 class NatureCNN(nnx.Module):
@@ -479,10 +473,10 @@ class NatureCNN(nnx.Module):
 
     Input [B, F, H, W, C] uint8 frames; output [B, hidden_dim] ReLU features.
     Conv layers use orthogonal(sqrt(2)) init, as in CleanRL; norm_type adds
-    bn/ln/None normalization before each activation.
+    bn/brn/ln/rms/None normalization before each activation.
     """
 
-    def __init__(self, observation_shape: tuple[int, int, int, int], rngs: nnx.Rngs, hidden_dim: int = 512, compute_type: Dtype = jnp.float32, norm_type: Literal["bn", "ln", None] = None) -> None:
+    def __init__(self, observation_shape: tuple[int, int, int, int], rngs: nnx.Rngs, hidden_dim: int = 512, compute_type: Dtype = jnp.float32, norm_type: Literal["bn", "brn", "ln", "rms"] | None = None) -> None:
         frames, height, width, channels = observation_shape
         self.compute_type = compute_type
         init = orthogonal(jnp.sqrt(2.0))
@@ -520,7 +514,7 @@ class HardMaxBlock(nnx.Module):
     xavier_normal init, as in Kooi et al. (2025).
     """
 
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, pool_size: int, pool_stride: int, rngs: nnx.Rngs, norm_type: Literal["bn", "ln", None], compute_type: Dtype = jnp.float32) -> None:
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, pool_size: int, pool_stride: int, rngs: nnx.Rngs, norm_type: Literal["bn", "brn", "ln", "rms"] | None, compute_type: Dtype = jnp.float32) -> None:
         kernel_init = jax.nn.initializers.xavier_normal()
         self.conv1 = nnx.Conv(in_channels, out_channels, (kernel_size, kernel_size), strides=(1, 1), padding="SAME", kernel_init=kernel_init, rngs=rngs, dtype=compute_type)
         self.conv2 = nnx.Conv(in_channels, out_channels, (kernel_size, kernel_size), strides=(1, 1), padding="SAME", kernel_init=kernel_init, rngs=rngs, dtype=compute_type)
@@ -539,11 +533,11 @@ class HardMaxCNN(nnx.Module):
     """Hadamax pixel encoder (Kooi et al., 2025) for stacked Atari frames.
 
     Input [B, F, H, W, C] uint8 frames; output [B, hidden_dim] GELU features.
-    Convs use xavier_normal init and bn/ln/None normalization + GELU before a
+    Convs use xavier_normal init and bn/brn/ln/rms/None normalization + GELU before a
     Hadamard-product fusion; the head fc uses he_normal, as in github.com/Jacobkooi/Hadamax.
     """
 
-    def __init__(self, observation_shape: tuple[int, int, int, int], rngs: nnx.Rngs, hidden_dim: int = 512, compute_type: Dtype = jnp.float32, norm_type: Literal["bn", "ln", None] = "ln") -> None:
+    def __init__(self, observation_shape: tuple[int, int, int, int], rngs: nnx.Rngs, hidden_dim: int = 512, compute_type: Dtype = jnp.float32, norm_type: Literal["bn", "brn", "ln", "rms"] | None = "ln") -> None:
         frames, height, width, channels = observation_shape
         in_channels = frames * channels
         self.compute_type = compute_type

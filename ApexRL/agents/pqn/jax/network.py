@@ -22,7 +22,7 @@ class Critic(nnx.Module):
         rngs: nnx.Rngs,
         hidden_dim: int = 512,
         compute_type: Dtype = jnp.float32,
-        norm_type: Literal["bn", "ln", None] = "ln",
+        norm_type: Literal["bn", "brn", "ln", "rms"] | None = "ln",
         encoder: Literal["nature", "hardmax"] = "nature",
     ):
         self.action_dim = action_dim

@@ -25,7 +25,7 @@ class PQNConfig(BaseConfig):
     end_e: float = 0.001
     hidden_dim: int = 512
     compute_type: Literal["float32", "bfloat16"] = "float32"
-    norm_type: Literal["bn", "ln", None] = "ln"
+    norm_type: Literal["bn", "brn", "ln", "rms"] | None = "ln"
     encoder: Literal["nature", "hardmax"] = "hardmax"
 
     action_dim: int = field(init=False, default=0)

@@ -5,8 +5,8 @@ import torch.nn.functional as F
 from torch import nn
 
 from ....model.torch.layer import (
-    BatchNorm1d,
-    EnsembleBatchNorm1D,
+    BatchNorm,
+    EnsembleBatchNorm,
     EnsembleLinear,
     EnsembleRMSNorm,
     Linear,
@@ -30,7 +30,7 @@ class FlashSACEmbedder(nn.Module):
         use_bias: bool = True,
     ) -> None:
         super().__init__()
-        self.norm = BatchNorm1d(input_dim)
+        self.norm = BatchNorm(input_dim)
         self.w = Linear(input_dim, hidden_dim, bias=use_bias)
 
     def forward(
@@ -53,8 +53,8 @@ class FlashSACBlock(nn.Module):
         super().__init__()
         self.w1 = Linear(hidden_dim, hidden_dim * expansion, bias=use_bias)
         self.w2 = Linear(hidden_dim * expansion, hidden_dim, bias=use_bias)
-        self.norm1 = BatchNorm1d(hidden_dim * expansion)
-        self.norm2 = BatchNorm1d(hidden_dim)
+        self.norm1 = BatchNorm(hidden_dim * expansion)
+        self.norm2 = BatchNorm(hidden_dim)
 
     def forward(
         self,
@@ -88,7 +88,7 @@ class Encoder(nn.Module):
                 for _ in range(num_blocks)
             ]
         )
-        self.post_norm = RMSNorm(hidden_dim, eps=1e-6)
+        self.post_norm = RMSNorm(hidden_dim, epsilon=1e-6)
 
     def forward(
         self,
@@ -113,7 +113,7 @@ class EnsembleFlashSACEmbedder(nn.Module):
     ) -> None:
         super().__init__()
         self.num_ensemble = num_ensemble
-        self.norm = EnsembleBatchNorm1D(num_ensemble, input_dim)
+        self.norm = EnsembleBatchNorm(num_ensemble, input_dim)
         self.w = EnsembleLinear(num_ensemble, input_dim, hidden_dim, bias=use_bias)
 
     def forward(
@@ -152,8 +152,8 @@ class EnsembleFlashSACBlock(nn.Module):
             hidden_dim,
             bias=use_bias,
         )
-        self.norm1 = EnsembleBatchNorm1D(num_ensemble, hidden_dim * expansion)
-        self.norm2 = EnsembleBatchNorm1D(num_ensemble, hidden_dim)
+        self.norm1 = EnsembleBatchNorm(num_ensemble, hidden_dim * expansion)
+        self.norm2 = EnsembleBatchNorm(num_ensemble, hidden_dim)
 
     def forward(
         self,

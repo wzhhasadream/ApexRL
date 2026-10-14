@@ -10,10 +10,14 @@ from typing import Any, Callable, Generic, Sequence, TypeVar
 from pathlib import Path
 from torch.amp.grad_scaler import GradScaler
 from .layer import (
+    BatchNorm,
+    BatchRenorm,
+    LayerNorm,
     MLP,
     Linear,
     RMSNorm,
-    EnsembleBatchNorm1D,
+    EnsembleBatchNorm,
+    EnsembleBatchRenorm,
     EnsembleLayerNorm,
     EnsembleLinear,
     EnsembleMLP,

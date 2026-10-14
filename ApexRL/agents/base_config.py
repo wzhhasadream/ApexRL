@@ -5,14 +5,15 @@ from collections.abc import Sequence
 from typing import Any, ClassVar, TypeVar
 
 from ..common import explicit_cli_fields
+from ..envs import CPU_SIM, ENVPOOL_SIM, GPU_SIM
 
 C = TypeVar("C", bound="BaseConfig")
 
 # Environment families: env_type -> family name used as a key in ENV_TYPE_PRESETS
 ENV_FAMILY = {
-    "atari": "atari",
-    "mujoco": "cpu_sim", "dmc": "cpu_sim", "myosuite": "cpu_sim", "humanoid_bench": "cpu_sim", "metaworld": "cpu_sim",
-    "playground": "gpu_sim", "isaaclab": "gpu_sim", "maniskill": "gpu_sim", "mjlab": "gpu_sim",
+    **dict.fromkeys(CPU_SIM, "cpu_sim"),
+    **dict.fromkeys(ENVPOOL_SIM, "envpool_sim"),
+    **dict.fromkeys(GPU_SIM, "gpu_sim"),
 }
 
 
@@ -23,7 +24,7 @@ class BaseConfig:
         dataclass defaults < ENV_TYPE_PRESETS[family or env_type] < ENV_NAME_PRESETS[env_name] < user / CLI overrides
 
     Subclasses only declare the two preset dicts. A preset key in ENV_TYPE_PRESETS can be a family
-    ("atari", "cpu_sim", "gpu_sim") or a concrete env_type ("isaaclab"); a concrete env_type is applied after its family.
+    ("envpool_sim", "cpu_sim", "gpu_sim") or a concrete env_type ("atari", "craftax"); a concrete env_type is applied after its family.
     """
 
     ENV_TYPE_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {}

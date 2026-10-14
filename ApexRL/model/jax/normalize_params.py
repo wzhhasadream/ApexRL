@@ -2,6 +2,8 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
+from .layer import BatchNorm, BatchRenorm, LayerNorm, RMSNorm
+
 
 def normalize_linear_kernel(
     kernel: jax.Array,
@@ -54,7 +56,7 @@ def project_param(module: nnx.Module) -> None:
                 submodule.kernel.value
             )
 
-        if isinstance(submodule, (nnx.LayerNorm, nnx.BatchNorm)):
+        if isinstance(submodule, (nnx.LayerNorm, nnx.BatchNorm, BatchNorm, BatchRenorm, LayerNorm)):
             scale = getattr(submodule, "scale", None)
             bias = getattr(submodule, "bias", None)
             if scale is not None and bias is not None:
@@ -62,7 +64,7 @@ def project_param(module: nnx.Module) -> None:
                     scale.value,
                     bias.value,
                 )
-        elif hasattr(nnx, "RMSNorm") and isinstance(submodule, nnx.RMSNorm):
+        elif isinstance(submodule, (nnx.RMSNorm, RMSNorm)):
             scale = getattr(submodule, "scale", None)
             if scale is not None:
                 scale.value = normalize_scale(scale.value)

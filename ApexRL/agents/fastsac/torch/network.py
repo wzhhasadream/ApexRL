@@ -18,7 +18,7 @@ class Actor(nn.Module):
         self.obs_dim = obs_dim
         self.use_tanh = cfg.use_tanh
         dims = (cfg.actor_hidden_dim, cfg.actor_hidden_dim // 2, cfg.actor_hidden_dim // 4)
-        self.trunk = MLP(obs_dim, dims, layer_norm=cfg.use_layer_norm, activation_fn=F.silu)
+        self.trunk = MLP(obs_dim, dims, norm_type="ln" if cfg.use_layer_norm else None, activation_fn=F.silu)
         self.mean = nn.Linear(dims[-1], action_dim)
         self.log_std = nn.Linear(dims[-1], action_dim)
         for layer in self.trunk.layers:
@@ -46,7 +46,7 @@ class Critic(nn.Module):
         super().__init__()
         self.dist = CategoricalPolicy(cfg.num_atoms, cfg.v_min, cfg.v_max)
         dims = (cfg.critic_hidden_dim, cfg.critic_hidden_dim // 2, cfg.critic_hidden_dim // 4)
-        self.trunk = EnsembleMLP(cfg.num_q_networks, obs_dim + action_dim, dims, layer_norm=cfg.use_layer_norm, activation_fn=F.silu)
+        self.trunk = EnsembleMLP(cfg.num_q_networks, obs_dim + action_dim, dims, norm_type="ln" if cfg.use_layer_norm else None, activation_fn=F.silu)
         self.head = EnsembleLinear(cfg.num_q_networks, dims[-1], cfg.num_atoms)
         for layer in [*self.trunk.layers, self.head]:
             torch_default_init_(layer)
