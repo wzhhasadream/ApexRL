@@ -16,22 +16,22 @@ class Args(RePTConfig):
     env_type: Literal["mujoco", "dmc", "myosuite", "humanoid_bench", "metaworld"] = "mujoco"
     env_id: str = "HalfCheetah-v4"
     num_eval_envs: int = 1
-    eval_episodes: int | None = 10  # Defaults to one episode per evaluation environment.
+    eval_episodes: int | None = 10  # None selects one episode per evaluation environment.
     max_episode_steps: int | None = None
     rescale_action: bool = True
     num_eval: int = 20
     num_log: int = 50
     results_dir: str = "Results"
-    project: str = "ApexRL"
-    run_name: str | None = None
     record_video: bool = False
     save_agent: bool = False
     save_onnx: bool = False
+    encoder_path: str | None = None
+    save_encoder: bool = False
 
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    cfg = RePTConfig.from_cli(args, args.env_type, args.env_id)
+    cfg = args.from_cli(args.env_type, args.env_id)
 
     from ApexRL.agents.rept.jax import RePTAgent
 
@@ -42,9 +42,11 @@ if __name__ == "__main__":
         action_repeat=cfg.action_repeat, max_episode_steps=args.max_episode_steps,
         clip_action=True, render_mode="rgb_array" if args.record_video else None,
     )
-    eval_episodes = eval_envs.num_envs if args.eval_episodes is None else args.eval_episodes
+    args.eval_episodes = eval_envs.num_envs if args.eval_episodes is None else args.eval_episodes
     agent = RePTAgent(train_envs, cfg)
-    env_cfg = EnvironmentConfig(env_type=args.env_type, seed=cfg.seed, eval_episode=eval_episodes)
+    if args.encoder_path is not None:
+        agent.load_encoder(f"args.encoder_path/{args.seed}")
+    env_cfg = EnvironmentConfig(env_type=args.env_type, seed=cfg.seed, eval_episode=args.eval_episodes)
     run_cfg = OffPolicyRunnerConfig(
         total_timesteps=cfg.total_timesteps,
         grad_step_per_interaction_step=cfg.grad_step_per_interaction_step,
@@ -53,7 +55,10 @@ if __name__ == "__main__":
     )
     runner = OffPolicyRunner(
         train_envs=train_envs, eval_envs=eval_envs, record_envs=record_envs, agent=agent,
-        env_cfg=env_cfg, run_cfg=run_cfg, results_dir=args.results_dir, project=args.project,
-        run_name=args.run_name or f"rept-{args.backend}-{args.env_id}",
+        env_cfg=env_cfg, run_cfg=run_cfg, results_dir=args.results_dir, project=args.env_type,
+        run_name=args.env_id,
     )
+    save_path = runner.log_dir
     runner.run()
+    if args.save_encoder:
+        agent.save_encoder(save_path)

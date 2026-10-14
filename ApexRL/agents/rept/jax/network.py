@@ -38,7 +38,7 @@ class Encoder(nnx.Module):
         self.sa_encoder = FlashSACEncoder(z_s_dim + action_dim, num_blocks, z_sa_dim, rngs, use_bias, compute_type)
         self.reward_head = nnx.Linear(z_sa_dim, 1, use_bias=use_bias, dtype=compute_type, rngs=rngs)
         self.p_w = nnx.Linear(z_sa_dim, z_s_dim, use_bias=use_bias, dtype=compute_type, rngs=rngs)
-        self.nce_alpha = Alpha(100)
+        self.nce_alpha = Alpha()
 
     def embed_s(self, observations: jax.Array, training: bool = False) -> jax.Array:
         observations = self.cnn(observations) if self.cnn is not None else observations
@@ -48,7 +48,7 @@ class Encoder(nnx.Module):
         return self.sa_encoder(jnp.concatenate([z_s, actions], axis=-1), training=training).astype(jnp.float32)
 
     def get_alpha(self) -> jax.Array:
-        return self.nce_alpha()
+        return jnp.clip(self.nce_alpha(), 0, 100)
 
     def pred_reward(self, z_sa: jax.Array) -> jax.Array:
         return self.reward_head(z_sa).astype(jnp.float32)
