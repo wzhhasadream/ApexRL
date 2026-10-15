@@ -23,7 +23,7 @@ class Actor(nnx.Module):
         self.obs_dim = obs_dim
         dtype = getattr(jnp, cfg.compute_type)
         dims = (cfg.actor_hidden_dim, cfg.actor_hidden_dim // 2, cfg.actor_hidden_dim // 4)
-        self.trunk = MLP(obs_dim, dims, rngs, layer_norm=cfg.use_layer_norm, activation_fn=jax.nn.relu, compute_type=dtype)
+        self.trunk = MLP(obs_dim, dims, rngs, norm_type="ln" if cfg.use_layer_norm else None, activation_fn=jax.nn.relu, compute_type=dtype)
         self.head = nnx.Linear(dims[-1], action_dim, rngs=rngs, kernel_init=nnx.initializers.normal(cfg.init_scale), bias_init=nnx.initializers.zeros, dtype=dtype)
         self.policy = TanhDeterministicPolicy(action_low, action_high)
         for layer in self.trunk.layers:
@@ -37,7 +37,7 @@ class CriticHead(nnx.Module):
     def __init__(self, obs_dim: int, action_dim: int, rngs: nnx.Rngs, cfg: FastTD3Config) -> None:
         dtype = getattr(jnp, cfg.compute_type)
         dims = (cfg.critic_hidden_dim, cfg.critic_hidden_dim // 2, cfg.critic_hidden_dim // 4)
-        self.trunk = MLP(obs_dim + action_dim, dims, rngs, layer_norm=cfg.use_layer_norm, activation_fn=jax.nn.relu, compute_type=dtype)
+        self.trunk = MLP(obs_dim + action_dim, dims, rngs, norm_type="ln" if cfg.use_layer_norm else None, activation_fn=jax.nn.relu, compute_type=dtype)
         self.head = nnx.Linear(dims[-1], cfg.num_atoms, rngs=rngs, dtype=dtype)
         for layer in [*self.trunk.layers, self.head]:
             torch_default_init_(layer, rngs)

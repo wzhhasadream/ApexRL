@@ -6,6 +6,7 @@ from flax import nnx
 from flax.typing import Dtype
 
 from ....model.jax.dist_head import CategoricalPolicy, QuantilePolicy
+from ....model.jax.layer import BatchNorm, RMSNorm
 from ....model.jax.policy import SquashedTanhGaussianPolicy
 
 
@@ -22,8 +23,8 @@ class FlashSACEmbedder(nnx.Module):
         use_bias: bool = True,
         compute_dtype: Dtype = jnp.float32,
     ):
-        self.norm = nnx.BatchNorm(
-            num_features=input_dim,
+        self.norm = BatchNorm(
+            feature_shape=input_dim,
             rngs=rngs,
             dtype=compute_dtype,
         )
@@ -37,7 +38,7 @@ class FlashSACEmbedder(nnx.Module):
         )
 
     def __call__(self, x: jax.Array, training: bool) -> jax.Array:
-        x = self.norm(x, use_running_average=not training)
+        x = self.norm(x, training=training)
         return self.w(x)
 
 
@@ -66,13 +67,13 @@ class FlashSACBlock(nnx.Module):
             use_bias=use_bias,
             dtype=compute_dtype,
         )
-        self.norm1 = nnx.BatchNorm(
-            num_features=hidden_dim * expansion,
+        self.norm1 = BatchNorm(
+            feature_shape=hidden_dim * expansion,
             rngs=rngs,
             dtype=compute_dtype,
         )
-        self.norm2 = nnx.BatchNorm(
-            num_features=hidden_dim,
+        self.norm2 = BatchNorm(
+            feature_shape=hidden_dim,
             rngs=rngs,
             dtype=compute_dtype,
         )
@@ -80,10 +81,10 @@ class FlashSACBlock(nnx.Module):
     def __call__(self, x: jax.Array, training: bool) -> jax.Array:
         residual = x
         x = self.w1(x)
-        x = self.norm1(x, use_running_average=not training)
+        x = self.norm1(x, training=training)
         x = nnx.relu(x)
         x = self.w2(x)
-        x = self.norm2(x, use_running_average=not training)
+        x = self.norm2(x, training=training)
         return residual + nnx.relu(x)
 
 
@@ -108,7 +109,7 @@ class Encoder(nnx.Module):
             FlashSACBlock(hidden_dim, rngs, 4, use_bias, compute_type)
             for _ in range(num_blocks)
         ]
-        self.rms = nnx.RMSNorm(hidden_dim, rngs=rngs, dtype=compute_type)
+        self.rms = RMSNorm(hidden_dim, rngs=rngs, dtype=compute_type)
 
     def __call__(self, x: jax.Array, training: bool) -> jax.Array:
         x = self.embed(x, training=training)

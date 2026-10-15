@@ -21,7 +21,7 @@ class Encoder(nn.Module):
     def __init__(self, obs_shape: tuple[int, ...], hidden_dims: Sequence[int], activation: Callable) -> None:
         super().__init__()
         self.obs_norm = OnPolicyRMS(flatten_observation_dim(obs_shape))
-        self.mlp = MLP(flatten_observation_dim(obs_shape), hidden_dims, layer_norm=True, activation_fn=activation)
+        self.mlp = MLP(flatten_observation_dim(obs_shape), hidden_dims, norm_type="ln", activation_fn=activation)
         self.out_dim = hidden_dims[-1]
 
     def forward(self, obs: torch.Tensor, update_rms: bool = False) -> torch.Tensor:

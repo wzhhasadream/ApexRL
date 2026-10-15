@@ -13,7 +13,8 @@ if TYPE_CHECKING:
     from .dmc import DMCPhysicsMods
 
 CPU_SIM = ("mujoco", "dmc", "myosuite", "humanoid_bench", "metaworld")
-GPU_SIM = ("playground", "isaaclab", "maniskill", "mjlab")
+GPU_SIM = ("playground", "isaaclab", "maniskill", "mjlab", "craftax")
+ENVPOOL_SIM = ("atari",)
 
 
 def create_envs(
@@ -32,7 +33,7 @@ def create_envs(
 ) -> tuple[VectorEnv, VectorEnv, VectorEnv]:
     if action_repeat is None:
         action_repeat = 4 if env_type == "atari" else 1
-    if max_episode_steps is None:
+    if max_episode_steps is None and env_type != "craftax":
         max_episode_steps = 108_000 if env_type == "atari" else 1000
 
     # IsaacLab uses one simulator shared by training, evaluation, and recording.
@@ -84,10 +85,14 @@ def create_envs(
             from .mjlab import make_mjlab_env
 
             env = make_mjlab_env(task_id=env_name, seed=seed, num_envs=num_envs, render_mode=mode)
+        elif env_type == "craftax":
+            from .craftax import make_craftax_env
+
+            env = make_craftax_env(env_name, seed, num_envs, max_episode_steps=max_episode_steps, render_mode=mode)
         else:
             raise ValueError(f"Unsupported env_type: {env_type}")
 
-        env = wrap_vector_env(env, action_repeat=vector_repeat, clip_action=clip_action and env_type != "atari")
+        env = wrap_vector_env(env, action_repeat=vector_repeat, clip_action=clip_action and isinstance(env.single_action_space, gym.spaces.Box))
         envs.append(env)
 
     return envs[0], envs[1], envs[2]

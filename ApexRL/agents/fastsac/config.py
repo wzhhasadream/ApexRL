@@ -53,8 +53,10 @@ class FastSACConfig(BaseConfig):
         "playground": dict(num_train_env=1024, gamma=0.97),
         "isaaclab": dict(num_train_env=4096),
     }
+    DERIVED_FIELDS: ClassVar[tuple[str, ...]] = ("total_timesteps", "buffer_size", "learning_starts")
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         if self.num_train_env < 1 or self.num_learning_iterations < 1:
             raise ValueError("num_train_env and num_learning_iterations must be positive")
         if self.total_timesteps is None:

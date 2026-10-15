@@ -14,6 +14,7 @@ EnvironmentType = Literal[
     "maniskill",
     "isaaclab",
     "mjlab",
+    "craftax",
 ]
 
 

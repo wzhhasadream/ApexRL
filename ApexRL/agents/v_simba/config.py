@@ -51,8 +51,10 @@ class VSimbaConfig(BaseConfig):
 
     ENV_TYPE_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {
     }
+    DERIVED_FIELDS: ClassVar[tuple[str, ...]] = ("gamma",)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        super().__post_init__()
         if self.gamma is None:
             effective_episode_length = self.max_episode_steps / self.action_repeat
             self.gamma = max(min(1.0 - 5.0 / effective_episode_length, 0.995), 0.95)

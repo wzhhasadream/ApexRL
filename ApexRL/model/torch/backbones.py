@@ -6,8 +6,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .layer import (
-    BatchNorm1d,
-    EnsembleBatchNorm1D,
+    BatchNorm,
+    BatchRenorm,
+    LayerNorm,
+    EnsembleBatchNorm,
     EnsembleLinear,
     EnsembleRMSNorm,
     Linear,
@@ -28,7 +30,7 @@ class FlashSACEmbedder(nn.Module):
         use_bias: bool = True,
     ) -> None:
         super().__init__()
-        self.norm = BatchNorm1d(input_dim)
+        self.norm = BatchNorm(input_dim)
         self.w = Linear(input_dim, hidden_dim, bias=use_bias)
 
     def forward(
@@ -51,8 +53,8 @@ class FlashSACBlock(nn.Module):
         super().__init__()
         self.w1 = Linear(hidden_dim, hidden_dim * expansion, bias=use_bias)
         self.w2 = Linear(hidden_dim * expansion, hidden_dim, bias=use_bias)
-        self.norm1 = BatchNorm1d(hidden_dim * expansion)
-        self.norm2 = BatchNorm1d(hidden_dim)
+        self.norm1 = BatchNorm(hidden_dim * expansion)
+        self.norm2 = BatchNorm(hidden_dim)
 
     def forward(
         self,
@@ -88,7 +90,7 @@ class FlashSACEncoder(nn.Module):
                 for _ in range(num_blocks)
             ]
         )
-        self.post_norm = RMSNorm(hidden_dim, eps=1e-6)
+        self.post_norm = RMSNorm(hidden_dim, epsilon=1e-6)
 
     def forward(
         self,
@@ -113,7 +115,7 @@ class EnsembleFlashSACEmbedder(nn.Module):
     ) -> None:
         super().__init__()
         self.num_ensemble = num_ensemble
-        self.norm = EnsembleBatchNorm1D(num_ensemble, input_dim)
+        self.norm = EnsembleBatchNorm(num_ensemble, input_dim)
         self.w = EnsembleLinear(
             num_ensemble, input_dim, hidden_dim, bias=use_bias
         )
@@ -155,10 +157,10 @@ class EnsembleFlashSACBlock(nn.Module):
             hidden_dim,
             bias=use_bias,
         )
-        self.norm1 = EnsembleBatchNorm1D(
+        self.norm1 = EnsembleBatchNorm(
             num_ensemble, hidden_dim * expansion
         )
-        self.norm2 = EnsembleBatchNorm1D(num_ensemble, hidden_dim)
+        self.norm2 = EnsembleBatchNorm(num_ensemble, hidden_dim)
 
     def forward(
         self,
@@ -290,7 +292,7 @@ class DRQVisionEncoder(nn.Module):
 
         self.latent_dim = latent_dim
         self.fc = Linear(self.feature_dim, latent_dim, bias=use_bias)
-        self.ln = nn.LayerNorm(latent_dim)
+        self.ln = LayerNorm(latent_dim)
         nn.init.xavier_uniform_(self.fc.weight)
         if self.fc.bias is not None:
             nn.init.zeros_(self.fc.bias)
@@ -386,7 +388,7 @@ class DRQV2VisionEncoder(nn.Module):
 
         self.latent_dim = latent_dim
         self.fc = Linear(self.feature_dim, latent_dim, bias=use_bias)
-        self.ln = nn.LayerNorm(latent_dim)
+        self.ln = LayerNorm(latent_dim)
         nn.init.orthogonal_(self.fc.weight)
         if self.fc.bias is not None:
             nn.init.zeros_(self.fc.bias)
@@ -462,7 +464,7 @@ class VSimbaEmbedder(nn.Module):
     def __init__(self, input_dim: int, hidden_dim: int, use_bias: bool = True):
         super().__init__()
         self.w = Linear(input_dim, hidden_dim, bias=use_bias)
-        self.feature_norm = nn.LayerNorm(hidden_dim, eps=1e-6)
+        self.feature_norm = LayerNorm(hidden_dim, epsilon=1e-6)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.feature_norm(self.w(x))
@@ -474,7 +476,7 @@ class VSimbaMLPBlock(nn.Module):
     def __init__(self, hidden_dim: int, expansion: int = 4, use_bias: bool = True):
         super().__init__()
         self.mlp = VSimbaMLP(hidden_dim, hidden_dim * expansion, hidden_dim, use_bias)
-        self.feature_norm = nn.LayerNorm(hidden_dim, eps=1e-6)
+        self.feature_norm = LayerNorm(hidden_dim, epsilon=1e-6)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x + self.mlp(self.feature_norm(x))
@@ -487,7 +489,7 @@ class VSimbaEncoder(nn.Module):
         super().__init__()
         self.embedder = VSimbaEmbedder(input_dim, hidden_dim, use_bias)
         self.blocks = nn.ModuleList([VSimbaMLPBlock(hidden_dim, expansion, use_bias) for _ in range(num_blocks)])
-        self.post_norm = nn.LayerNorm(hidden_dim, eps=1e-6)
+        self.post_norm = LayerNorm(hidden_dim, epsilon=1e-6)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.embedder(x)
@@ -506,8 +508,8 @@ class VSimbaConvBlock(nn.Module):
         if self.conv.bias is not None:
             nn.init.zeros_(self.conv.bias)
         self.mlp = VSimbaMLP(num_channels, num_channels * expansion, num_channels, use_bias)
-        self.feature_norm = nn.LayerNorm(num_channels, eps=1e-6)
-        self.ds_feature_norm = nn.LayerNorm(num_channels, eps=1e-6)
+        self.feature_norm = LayerNorm(num_channels, epsilon=1e-6)
+        self.ds_feature_norm = LayerNorm(num_channels, epsilon=1e-6)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = x
@@ -527,12 +529,12 @@ class VSimbaVisionEncoder(nn.Module):
         super().__init__()
         frame_count, height, width, channels = input_shape
         in_channels = frame_count * channels
-        self.input_norm = nn.LayerNorm(in_channels, eps=1e-6)
+        self.input_norm = LayerNorm(in_channels, epsilon=1e-6)
         self.stem_conv = nn.Conv2d(in_channels, num_channels, kernel_size=3, stride=2, padding=1, bias=use_bias)
         nn.init.orthogonal_(self.stem_conv.weight, gain=1)
         if self.stem_conv.bias is not None:
             nn.init.zeros_(self.stem_conv.bias)
-        self.stem_norm = nn.LayerNorm(num_channels, eps=1e-6)
+        self.stem_norm = LayerNorm(num_channels, epsilon=1e-6)
         self.blocks = nn.ModuleList([VSimbaConvBlock(num_channels, conv_kernel_size, use_bias=use_bias) for _ in range(num_blocks)])
         height = (height + 1) // 2 // (2 ** (num_blocks + 1))
         width = (width + 1) // 2 // (2 ** (num_blocks + 1))
@@ -555,24 +557,20 @@ class VSimbaVisionEncoder(nn.Module):
 
 
 class _Norm(nn.Module):
-    """Normalize the channel axis (bn/ln) or passthrough (None)."""
+    """Apply feature-last normalization to the channel axis of NCHW inputs."""
 
-    def __init__(self, features: int, norm_type: Literal["bn", "ln", None]) -> None:
+    def __init__(self, features: int, norm_type: Literal["bn", "brn", "ln", "rms"] | None) -> None:
         super().__init__()
         self.norm_type = norm_type
-        if norm_type == "bn":
-            self.norm = BatchNorm1d(features)
-        elif norm_type == "ln":
-            self.norm = nn.LayerNorm(features)
-        else:
-            self.norm = None
+        norm_cls = {"bn": BatchNorm, "brn": BatchRenorm, "ln": LayerNorm, "rms": RMSNorm, None: None}[norm_type]
+        self.norm = norm_cls(features) if norm_cls is not None else None
 
     def forward(self, x: torch.Tensor, training: bool = False) -> torch.Tensor:
-        if self.norm_type == "bn":
-            return self.norm(x, training=training)
-        if self.norm_type == "ln":
-            return self.norm(x.movedim(1, -1)).movedim(-1, 1)
-        return x
+        if self.norm is None:
+            return x
+        x = x.movedim(1, -1)
+        x = self.norm(x, training=training) if self.norm_type in ("bn", "brn") else self.norm(x)
+        return x.movedim(-1, 1)
 
 
 class NatureCNN(nn.Module):
@@ -580,10 +578,10 @@ class NatureCNN(nn.Module):
 
     Input [B, F, H, W, C] uint8 frames; output [B, hidden_dim] ReLU features.
     Conv layers use orthogonal(sqrt(2)) init, as in CleanRL; norm_type adds
-    bn/ln/None normalization before each activation.
+    bn/brn/ln/rms/None normalization before each activation.
     """
 
-    def __init__(self, observation_shape: tuple[int, int, int, int], hidden_dim: int = 512, norm_type: Literal["bn", "ln", None] = None) -> None:
+    def __init__(self, observation_shape: tuple[int, int, int, int], hidden_dim: int = 512, norm_type: Literal["bn", "brn", "ln", "rms"] | None = None) -> None:
         super().__init__()
         frames, height, width, channels = observation_shape
         in_channels = frames * channels
@@ -625,7 +623,7 @@ class HardMaxBlock(nn.Module):
     xavier_normal init, as in Kooi et al. (2025).
     """
 
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, pool_size: int, pool_stride: int, pool_padding: int, norm_type: Literal["bn", "ln", None]) -> None:
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, pool_size: int, pool_stride: int, pool_padding: int, norm_type: Literal["bn", "brn", "ln", "rms"] | None) -> None:
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2)
         self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2)
@@ -649,11 +647,11 @@ class HardMaxCNN(nn.Module):
     """Hadamax pixel encoder (Kooi et al., 2025) for stacked Atari frames.
 
     Input [B, F, H, W, C] uint8 frames; output [B, hidden_dim] GELU features.
-    Convs use xavier_normal init and bn/ln/None normalization + GELU before a
+    Convs use xavier_normal init and bn/brn/ln/rms/None normalization + GELU before a
     Hadamard-product fusion; the head fc uses he_normal, as in github.com/Jacobkooi/Hadamax.
     """
 
-    def __init__(self, observation_shape: tuple[int, int, int, int], hidden_dim: int = 512, norm_type: Literal["bn", "ln", None] = "ln") -> None:
+    def __init__(self, observation_shape: tuple[int, int, int, int], hidden_dim: int = 512, norm_type: Literal["bn", "brn", "ln", "rms"] | None = "ln") -> None:
         super().__init__()
         frames, height, width, channels = observation_shape
         in_channels = frames * channels

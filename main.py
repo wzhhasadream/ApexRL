@@ -27,7 +27,7 @@ class Args(PQNConfig):
 
 args = tyro.cli(Args)
 
-cfg = PQNConfig.from_cli(args, args.env_type, args.env_id)  # Defaults < environment presets < explicit CLI overrides. Omitted CLI arguments do not override presets.
+cfg = args.from_cli(args.env_type, args.env_id)  # Defaults < environment presets < explicit CLI overrides.
 
 train_envs, eval_envs, record_envs = create_envs(
     env_name=args.env_id,

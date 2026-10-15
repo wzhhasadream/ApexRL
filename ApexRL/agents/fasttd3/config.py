@@ -49,8 +49,10 @@ class FastTD3Config(BaseConfig):
         "playground": dict(num_train_env=1024, gamma=0.97, v_min=-10.0, v_max=10.0),
         "isaaclab": dict(num_train_env=4096, v_min=-10.0, v_max=10.0, num_atoms=251, std_max=0.4),
     }
+    DERIVED_FIELDS: ClassVar[tuple[str, ...]] = ("total_timesteps", "buffer_size", "learning_starts")
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         if self.num_train_env < 1 or self.num_learning_iterations < 1:
             raise ValueError("num_train_env and num_learning_iterations must be positive")
         if self.total_timesteps is None:

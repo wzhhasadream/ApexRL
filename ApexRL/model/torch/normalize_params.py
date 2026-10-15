@@ -4,11 +4,15 @@ import torch
 from torch import nn
 
 from .layer import (
-    EnsembleBatchNorm1D,
+    BatchNorm,
+    BatchRenorm,
+    EnsembleBatchNorm,
+    EnsembleBatchRenorm,
     EnsembleLayerNorm,
     EnsembleLinear,
     EnsembleRMSNorm,
-    RMSNorm
+    LayerNorm,
+    RMSNorm,
 )
 
 
@@ -44,12 +48,16 @@ def normalize_scale(scale: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
 @torch.no_grad()
 @torch.compile(mode="max-autotune")
 def project_param(module: nn.Module) -> None:
-    """Project all nested linear, conv and affine normalization parameters."""
+    """Project all nested linear and affine normalization parameters."""
     norm_types = (
         nn.LayerNorm,
         nn.BatchNorm1d,
+        BatchNorm,
+        BatchRenorm,
+        LayerNorm,
+        EnsembleBatchNorm,
+        EnsembleBatchRenorm,
         EnsembleLayerNorm,
-        EnsembleBatchNorm1D,
     )
 
     for child in module.modules():

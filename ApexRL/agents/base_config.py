@@ -5,14 +5,15 @@ from collections.abc import Sequence
 from typing import Any, ClassVar, TypeVar
 
 from ..common import explicit_cli_fields
+from ..envs import CPU_SIM, ENVPOOL_SIM, GPU_SIM
 
 C = TypeVar("C", bound="BaseConfig")
 
 # Environment families: env_type -> family name used as a key in ENV_TYPE_PRESETS
 ENV_FAMILY = {
-    "atari": "atari",
-    "mujoco": "cpu_sim", "dmc": "cpu_sim", "myosuite": "cpu_sim", "humanoid_bench": "cpu_sim", "metaworld": "cpu_sim",
-    "playground": "gpu_sim", "isaaclab": "gpu_sim", "maniskill": "gpu_sim", "mjlab": "gpu_sim",
+    **dict.fromkeys(CPU_SIM, "cpu_sim"),
+    **dict.fromkeys(ENVPOOL_SIM, "envpool_sim"),
+    **dict.fromkeys(GPU_SIM, "gpu_sim"),
 }
 
 
@@ -20,14 +21,18 @@ ENV_FAMILY = {
 class BaseConfig:
     """Layered agent config. Later layers win:
 
-        dataclass defaults < ENV_TYPE_PRESETS[family or env_type] < ENV_NAME_PRESETS[env_name] < user / CLI overrides
+        instance values < family < cpu_sim_visual < env_type < env_name < user / CLI overrides
 
-    Subclasses only declare the two preset dicts. A preset key in ENV_TYPE_PRESETS can be a family
-    ("atari", "cpu_sim", "gpu_sim") or a concrete env_type ("isaaclab"); a concrete env_type is applied after its family.
+    ENV_TYPE_PRESETS accepts families ("envpool_sim", "cpu_sim", "gpu_sim") and concrete env_types.
+    CPU tasks ending in "-visual" also apply "cpu_sim_visual" before the concrete env_type.
     """
 
     ENV_TYPE_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {}
     ENV_NAME_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {}
+    DERIVED_FIELDS: ClassVar[tuple[str, ...]] = ()
+
+    def __post_init__(self) -> None:
+        self._auto_fields: set[str] = {name for name in self.DERIVED_FIELDS if getattr(self, name) is None}
 
     @classmethod
     def presets(cls, env_type: str, env_name: str | None = None) -> dict[str, Any]:
@@ -35,30 +40,37 @@ class BaseConfig:
         if env_type not in ENV_FAMILY:
             raise ValueError(f"Unknown env_type {env_type!r}; expected one of {tuple(ENV_FAMILY)}")
         family = ENV_FAMILY[env_type]
-        merged = {**cls.ENV_TYPE_PRESETS.get(family, {}), **cls.ENV_TYPE_PRESETS.get(env_type, {})}
+        merged = dict(cls.ENV_TYPE_PRESETS.get(family, {}))
+        if family == "cpu_sim" and env_name is not None and env_name.endswith("-visual"):
+            merged.update(cls.ENV_TYPE_PRESETS.get("cpu_sim_visual", {}))
+        merged.update(cls.ENV_TYPE_PRESETS.get(env_type, {}))
         if env_name is not None:
             merged.update(cls.ENV_NAME_PRESETS.get(env_name, {}))
         return merged
 
-    @classmethod
-    def from_env(cls: type[C], env_type: str, env_name: str | None = None, **overrides: Any) -> C:
-        """Build a config for one environment; keyword overrides beat every preset."""
-        values = {**cls.presets(env_type, env_name), **overrides}
-        unknown = set(values) - {f.name for f in dataclasses.fields(cls)}
+    def from_env(self: C, env_type: str, env_name: str | None = None, **overrides: Any) -> C:
+        """Apply environment presets and overrides in place, then return self."""
+        values = {**self.presets(env_type, env_name), **overrides}
+        unknown = set(values) - {f.name for f in dataclasses.fields(self)}
         if unknown:
-            raise ValueError(f"{cls.__name__} has no fields {sorted(unknown)}")
-        return cls(**values)
+            raise ValueError(f"{type(self).__name__} has no fields {sorted(unknown)}")
+        # Recompute automatic values after their inputs change; preserve explicit values.
+        for name in self._auto_fields - values.keys():
+            setattr(self, name, None)
+        for name, value in values.items():
+            setattr(self, name, value)
+        self.__post_init__()
+        return self
 
-    @classmethod
-    def from_cli(cls: type[C], args: Any, env_type: str, env_name: str | None = None, argv: Sequence[str] | None = None, **overrides: Any) -> C:
-        """Build a config from parsed CLI args plus explicit keyword overrides.
+    def from_cli(self: C, env_type: str, env_name: str | None = None, argv: Sequence[str] | None = None, **overrides: Any) -> C:
+        """Apply presets to this parsed CLI instance and return self.
 
         Only options typed on the command line override the presets; keyword
         overrides beat everything, so they can carry sampled hyperparameters.
         """
-        fields = {f.name for f in dataclasses.fields(cls)}
-        explicit = explicit_cli_fields(argv) & fields
-        return cls.from_env(env_type, env_name, **{**{name: getattr(args, name) for name in explicit}, **overrides})
+        fields = {f.name for f in dataclasses.fields(self)}
+        explicit = (explicit_cli_fields(argv) & fields) - {"env_type", "env_name"}
+        return self.from_env(env_type, env_name, **{**{name: getattr(self, name) for name in explicit}, **overrides})
 
     def replace(self: C, **changes: Any) -> C:
         return dataclasses.replace(self, **changes)

@@ -51,7 +51,7 @@ class EnsembleVSimbaEmbedder(nn.Module):
     def __init__(self, num_ensemble: int, input_dim: int, hidden_dim: int) -> None:
         super().__init__()
         self.w = EnsembleLinear(num_ensemble, input_dim, hidden_dim)
-        self.feature_norm = EnsembleLayerNorm(num_ensemble, hidden_dim, eps=1e-6)
+        self.feature_norm = EnsembleLayerNorm(num_ensemble, hidden_dim, epsilon=1e-6)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.feature_norm(self.w(x))
@@ -62,7 +62,7 @@ class EnsembleVSimbaBlock(nn.Module):
 
     def __init__(self, num_ensemble: int, hidden_dim: int, expansion: int = 4) -> None:
         super().__init__()
-        self.feature_norm = EnsembleLayerNorm(num_ensemble, hidden_dim, eps=1e-6)
+        self.feature_norm = EnsembleLayerNorm(num_ensemble, hidden_dim, epsilon=1e-6)
         self.w1 = EnsembleLinear(num_ensemble, hidden_dim, hidden_dim * expansion)
         self.w2 = EnsembleLinear(num_ensemble, hidden_dim * expansion, hidden_dim)
 
@@ -88,7 +88,7 @@ class EnsembleVSimbaEncoder(nn.Module):
         self.blocks = nn.ModuleList(
             [EnsembleVSimbaBlock(num_ensemble, hidden_dim) for _ in range(num_blocks)]
         )
-        self.post_norm = EnsembleLayerNorm(num_ensemble, hidden_dim, eps=1e-6)
+        self.post_norm = EnsembleLayerNorm(num_ensemble, hidden_dim, epsilon=1e-6)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.embedder(x)

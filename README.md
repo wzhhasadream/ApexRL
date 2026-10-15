@@ -128,7 +128,7 @@ python -m scripts.pqn --backend torch --seed 2 --num-train-env 64 --total-timest
 python -m scripts.warpsac --backend torch --env-type dmc --env-id cheetah-run
 ```
 
-The scripts inherit the algorithm config and call `Config.from_cli(...)`. Configuration precedence is
+The scripts inherit the algorithm config and call `args.from_cli(...)`, updating the parsed instance in place. Configuration precedence is
 **config defaults < environment presets < explicit CLI options**. Omitted CLI options keep the preset
 values. FastTD3 and FastSAC derive transition and replay counts from `num_train_env` unless those counts
 are explicitly supplied.
@@ -154,7 +154,7 @@ from ApexRL.agents.ppo.jax import PPOAgent
 from ApexRL.envs import create_envs
 from ApexRL.runners import EnvironmentConfig, OnPolicyRunner, OnPolicyRunnerConfig
 
-cfg = PPOConfig.from_env("atari", "Breakout-v5", seed=1)
+cfg = PPOConfig().from_env("atari", "Breakout-v5", seed=1)
 train_envs, eval_envs, record_envs = create_envs(
     "Breakout-v5", "atari", cfg.seed, num_train_envs=cfg.num_train_env, num_eval_envs=8, clip_action=False
 )
@@ -177,7 +177,7 @@ from ApexRL.agents.warpsac.jax import WarpSACAgent  # or: from ApexRL.agents.war
 from ApexRL.envs import create_envs
 from ApexRL.runners import EnvironmentConfig, OffPolicyRunner, OffPolicyRunnerConfig
 
-cfg = WarpSACConfig.from_env("mujoco", "HalfCheetah-v5", seed=1)
+cfg = WarpSACConfig().from_env("mujoco", "HalfCheetah-v5", seed=1)
 train_envs, eval_envs, record_envs = create_envs("HalfCheetah-v5", "mujoco", cfg.seed, num_train_envs=cfg.num_train_env)
 agent = WarpSACAgent(train_envs, cfg)
 runner = OffPolicyRunner(
@@ -204,7 +204,7 @@ from ApexRL.agents.v_simba.jax import VSimbaAgent  # or: from ApexRL.agents.v_si
 from ApexRL.envs import create_envs
 from ApexRL.runners import EnvironmentConfig, OffPolicyRunner, OffPolicyRunnerConfig
 
-cfg = VSimbaConfig.from_env("dmc", "cheetah-run-visual", seed=1)
+cfg = VSimbaConfig().from_env("dmc", "cheetah-run-visual", seed=1)
 train_envs, eval_envs, record_envs = create_envs(
     "cheetah-run-visual", "dmc", cfg.seed, num_train_envs=cfg.num_train_env,
     action_repeat=cfg.action_repeat, max_episode_steps=cfg.max_episode_steps,
@@ -224,23 +224,23 @@ steps. Pass `cfg.action_repeat` and `cfg.max_episode_steps` to `create_envs` to 
 
 ## Environment presets
 
-All six config classes support `Config.from_env(env_type, env_name=None, **overrides)`. It applies the
-environment family, then the specific `env_type`, then explicit overrides. The current configs have no
-`env_name`-specific presets.
+All config instances support `cfg.from_env(env_type, env_name=None, **overrides)` and return the same
+instance. It applies the environment family, `cpu_sim_visual` for CPU tasks ending in `-visual`,
+the specific `env_type`, `env_name` presets, and explicit overrides, in that order.
 
 
 | Config          | Example                                          | Preset applied                                                                                 |
 | --------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `PPOConfig`     | `PPOConfig.from_env("atari", "Breakout-v5")`     | Atari rollout, optimizer, and network settings; CPU and GPU simulator presets also exist       |
-| `PQNConfig`     | `PQNConfig.from_env("atari", "Breakout-v5")`     | Atari defaults from the config class                                                           |
-| `FastTD3Config` | `FastTD3Config.from_env("playground")`           | 1,024 environments, `gamma=0.97`, critic value range `[-10, 10]`; Isaac Lab has its own preset |
-| `FastSACConfig` | `FastSACConfig.from_env("playground")`           | 1,024 environments; Isaac Lab uses 4,096                                                       |
-| `WarpSACConfig` | `WarpSACConfig.from_env("isaaclab")`             | GPU simulator settings plus Isaac Lab `n_step=3`                                               |
-| `VSimbaConfig`  | `VSimbaConfig.from_env("dmc", "dog-run-visual")` | Defaults from the config class                                                                 |
+| `PPOConfig`     | `PPOConfig().from_env("atari", "Breakout-v5")`     | Atari rollout, optimizer, and network settings; CPU and GPU simulator presets also exist       |
+| `PQNConfig`     | `PQNConfig().from_env("atari", "Breakout-v5")`     | Atari defaults from the config class                                                           |
+| `FastTD3Config` | `FastTD3Config().from_env("playground")`           | 1,024 environments, `gamma=0.97`, critic value range `[-10, 10]`; Isaac Lab has its own preset |
+| `FastSACConfig` | `FastSACConfig().from_env("playground")`           | 1,024 environments; Isaac Lab uses 4,096                                                       |
+| `WarpSACConfig` | `WarpSACConfig().from_env("isaaclab")`             | GPU simulator settings plus Isaac Lab `n_step=3`                                               |
+| `VSimbaConfig`  | `VSimbaConfig().from_env("dmc", "dog-run-visual")` | Defaults from the config class                                                                 |
 
 
 For FastTD3 and FastSAC, set `num_train_env` in `from_env` so derived transition and buffer counts use
-the chosen environment count. Explicit values take precedence: `WarpSACConfig.from_env("isaaclab", num_train_env=2048)`.
+the chosen environment count. Explicit values take precedence: `WarpSACConfig().from_env("isaaclab", num_train_env=2048)`.
 
 ## Environments
 
@@ -266,7 +266,7 @@ replaces state observations with RGB images, and stacks three frames as `[3, H, 
 
 
 These DMC and MuJoCo examples produce observations shaped `[num_envs, 3, 84, 84, 3]` with dtype `uint8`.
-The suffix is handled by `create_envs`, independently of `Config.from_env`. Atari and GPU simulators
+The suffix enables pixels in `create_envs` and selects the `cpu_sim_visual` preset in `cfg.from_env`. Atari and GPU simulators
 use their own observation setup.
 
 Atari training and evaluation run on [envpool](https://github.com/sail-sg/envpool) with the purejaxql settings:
