@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+import orbax.checkpoint as ocp
 from flax import nnx
 from gymnasium.vector import VectorEnv
 
@@ -19,8 +20,10 @@ from .get_action import (
     get_exploration_action,
     update_reward_normalizer,
 )
-from .network import Actor, Critic, Encoder
+from .network import Actor, Critic
 from .update import make_update
+
+ENCODER_FILTER = nnx.Any(nnx.PathContains("cnn"), nnx.PathContains("s_encoder"), nnx.PathContains("sa_encoder"))
 
 class RePTAgent(OffPolicyAgent):
     """JAX off-policy RePrent agent with reward/value heads and NCE critic."""
@@ -74,12 +77,6 @@ class RePTAgent(OffPolicyAgent):
                 device=self.cfg.buffer_device,
             )
 
-        encoder_model = Encoder(
-            self.observation_shape, self.action_dim, rngs.fork(),
-            num_blocks=self.cfg.num_encoder_blocks, z_s_dim=self.cfg.z_s_dim, z_sa_dim=self.cfg.z_sa_dim,
-            use_bias=self.cfg.use_bias, compute_type=compute_type, vision_encoder=self.cfg.vision_encoder,
-        )
-
         actor_model = Actor(
             self.cfg.z_s_dim,
             self.action_dim,
@@ -92,15 +89,18 @@ class RePTAgent(OffPolicyAgent):
             compute_type=compute_type,
         )
         critic_model = Critic(
+            self.observation_shape, self.action_dim, rngs.fork(),
+            num_encoder_blocks=self.cfg.num_encoder_blocks,
+            z_s_dim=self.cfg.z_s_dim,
             z_sa_dim=self.cfg.z_sa_dim,
             hidden_dim=self.cfg.critic_hidden_dim,
-            rngs=rngs.fork(split=self.cfg.num_q),
             num_blocks=self.cfg.num_critic_blocks,
             use_bias=self.cfg.use_bias,
             compute_type=compute_type,
+            vision_encoder=self.cfg.vision_encoder,
+            num_q=self.cfg.num_q,
             num_head=self.cfg.num_head,
         )
-        self.encoder = Network(encoder_model, nnx.Optimizer(encoder_model, optax.adam(critic_schedule), wrt=nnx.Param))
         self.actor = Network(
             actor_model, nnx.Optimizer(actor_model, optax.adam(policy_schedule), wrt=nnx.Param),
             forward_name="get_deterministic_action",
@@ -117,19 +117,16 @@ class RePTAgent(OffPolicyAgent):
         if self.cfg.actor_normalize_parameters:
             self.actor.project_param()
         if self.cfg.critic_normalize_parameters:
-            self.encoder.project_param()
             self.critic.project_param()
-        self.target_encoder = Network(deepcopy(encoder_model), source_model=encoder_model, tau=self.cfg.tau)
         self.target_critic = Network(deepcopy(critic_model), source_model=critic_model, tau=self.cfg.tau)
 
         self._learner = default_device()
 
     def _init_cached_fn(self) -> None:
-        self._get_eval_fn = nnx.cached_partial(get_eval_action, self.encoder, self.actor)
-        self._get_exploration_fn = nnx.cached_partial(get_exploration_action, self.encoder, self.actor)
+        self._get_eval_fn = nnx.cached_partial(get_eval_action, self.critic, self.actor)
+        self._get_exploration_fn = nnx.cached_partial(get_exploration_action, self.critic, self.actor)
         self._update_fn = nnx.cached_partial(
-            make_update(self.cfg), self.encoder, self.critic, self.target_encoder, self.target_critic,
-            self.actor, self.alpha, self.reward_normalizer,
+            make_update(self.cfg), self.critic, self.target_critic, self.actor, self.alpha, self.reward_normalizer,
         )
         self._update_reward_normalizer = nnx.cached_partial(update_reward_normalizer, self.reward_normalizer)
 
@@ -179,8 +176,6 @@ class RePTAgent(OffPolicyAgent):
 
     def save(self, checkpoint_dir: str | Path) -> None:
         checkpoint_dir = Path(checkpoint_dir)
-        self.encoder.save(checkpoint_dir / "encoder.ckpt")
-        self.target_encoder.save(checkpoint_dir / "target_encoder.ckpt")
         self.actor.save(checkpoint_dir / "actor.ckpt")
         self.critic.save(checkpoint_dir / "critic.ckpt")
         self.target_critic.save(checkpoint_dir / "target_critic.ckpt")
@@ -190,8 +185,6 @@ class RePTAgent(OffPolicyAgent):
 
     def load(self, checkpoint_dir: str | Path) -> None:
         checkpoint_dir = Path(checkpoint_dir)
-        self.encoder.load(checkpoint_dir / "encoder.ckpt")
-        self.target_encoder.load(checkpoint_dir / "target_encoder.ckpt")
         self.actor.load(checkpoint_dir / "actor.ckpt")
         self.critic.load(checkpoint_dir / "critic.ckpt")
         self.target_critic.load(checkpoint_dir / "target_critic.ckpt")
@@ -202,11 +195,18 @@ class RePTAgent(OffPolicyAgent):
         self._init_cached_fn()
 
     def save_encoder(self, checkpoint_dir: str | Path) -> None:
-        self.encoder.save(Path(checkpoint_dir) / "encoder.ckpt")
+        checkpoint_dir = Path(checkpoint_dir).absolute()
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        with ocp.StandardCheckpointer() as ckpt:
+            ckpt.save(checkpoint_dir / "encoder.ckpt", nnx.state(self.critic.model).filter(ENCODER_FILTER))
+            ckpt.wait_until_finished()
 
     def load_encoder(self, checkpoint_dir: str | Path) -> None:
-        self.encoder.load(Path(checkpoint_dir) / "encoder.ckpt")
-        nnx.update(self.target_encoder.model, nnx.state(self.encoder.model))
+        encoder_state = nnx.state(self.critic.model).filter(ENCODER_FILTER)
+        with ocp.StandardCheckpointer() as ckpt:
+            encoder_state = ckpt.restore(Path(checkpoint_dir).absolute() / "encoder.ckpt", encoder_state)
+        nnx.update(self.critic.model, encoder_state)
+        nnx.update(self.target_critic.model, encoder_state)
         self._init_cached_fn()
 
     def save_buffer(self, checkpoint_dir: str | Path) -> None:
@@ -222,6 +222,6 @@ class RePTAgent(OffPolicyAgent):
 
     def save_onnx(self, onnx_dir: str | Path) -> None:
         onnx_dir = Path(onnx_dir)
-        state_encoder = Network(self.encoder.model, forward_name="embed_s")
+        state_encoder = Network(self.critic.model, forward_name="embed_s")
         policy = Network(nnx.Sequential(state_encoder, self.actor))
         policy.save_onnx(onnx_dir / "policy.onnx", [(1, *self.actor_obs_shape)])

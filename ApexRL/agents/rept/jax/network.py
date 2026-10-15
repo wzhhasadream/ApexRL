@@ -14,31 +14,40 @@ from ....model.jax.backbones import (
 )
 from ....model.jax.layer import orthogonal
 
-CRITIC_STATE_AXES = nnx.StateAxes({
-    nnx.PathContains("dist"): None,
-    nnx.Param: 0,
-    nnx.BatchStat: 0,
-    nnx.Variable: 0,
-})
+class QHead(nnx.Module):
+    """Independent categorical Q heads over shared state-action features."""
+
+    @nnx.vmap(in_axes=(0, None, None, 0, None, None, None, None))
+    def __init__(self, z_sa_dim: int, hidden_dim: int, rngs: nnx.Rngs, num_blocks: int,
+                 use_bias: bool, compute_type: Dtype, num_head: int) -> None:
+        self.trunk = FlashSACEncoder(z_sa_dim, num_blocks, hidden_dim, rngs, use_bias, compute_type)
+        self.value_head = nnx.Linear(hidden_dim, num_head, dtype=compute_type, rngs=rngs)
+
+    @nnx.vmap(in_axes=(0, None, None), out_axes=0)
+    def __call__(self, z_sa: jax.Array, training: bool = True) -> jax.Array:
+        return self.value_head(self.trunk(z_sa, training=training)).astype(jnp.float32)
 
 
-class Encoder(nnx.Module):
-    """Shared representations with next-state and reward prediction heads."""
+class Critic(nnx.Module):
+    """Shared state/action encoders and auxiliary heads with an ensemble of Q heads."""
 
-    def __init__(self, obs_shape: tuple[int, ...], action_dim: int, rngs: nnx.Rngs, num_blocks: int = 1,
+    def __init__(self, obs_shape: tuple[int, ...], action_dim: int, rngs: nnx.Rngs, num_encoder_blocks: int = 1,
                  z_s_dim: int = 256, z_sa_dim: int = 256, use_bias: bool = True, compute_type: Dtype = jnp.float32,
-                 vision_encoder: Literal["drq_dot", "drqv2", "vsimba"] = "drqv2") -> None:
+                 vision_encoder: Literal["drq_dot", "drqv2", "vsimba"] = "drqv2", hidden_dim: int = 256,
+                 num_blocks: int = 1, num_q: int = 2, num_head: int = 101) -> None:
         self.cnn = None
         input_dim = obs_shape[0]
         if len(obs_shape) == 4:
             cnn_cls = {"drq_dot": DRQVisionEncoder, "drqv2": DRQV2VisionEncoder, "vsimba": VSimbaVisionEncoder}[vision_encoder]
             self.cnn = cnn_cls(obs_shape, rngs=rngs, compute_type=compute_type)
             input_dim = self.cnn.get_output_dim()
-        self.s_encoder = FlashSACEncoder(input_dim, num_blocks, z_s_dim, rngs, use_bias, compute_type)
-        self.sa_encoder = FlashSACEncoder(z_s_dim + action_dim, num_blocks, z_sa_dim, rngs, use_bias, compute_type)
+        self.s_encoder = FlashSACEncoder(input_dim, num_encoder_blocks, z_s_dim, rngs, use_bias, compute_type)
+        self.sa_encoder = FlashSACEncoder(z_s_dim + action_dim, num_encoder_blocks, z_sa_dim, rngs, use_bias, compute_type)
         self.reward_head = nnx.Linear(z_sa_dim, 1, use_bias=use_bias, dtype=compute_type, rngs=rngs)
         self.p_w = nnx.Linear(z_sa_dim, z_s_dim, use_bias=use_bias, dtype=compute_type, rngs=rngs)
         self.nce_alpha = Alpha(100)
+        self.q = QHead(z_sa_dim, hidden_dim, rngs.fork(split=num_q), num_blocks, use_bias, compute_type, num_head)
+        self.dist = CategoricalPolicy(num_head, -5.0, 5.0)
 
     def embed_s(self, observations: jax.Array, training: bool = False) -> jax.Array:
         observations = self.cnn(observations) if self.cnn is not None else observations
@@ -56,21 +65,8 @@ class Encoder(nnx.Module):
     def pred_z_s(self, z_sa: jax.Array) -> jax.Array:
         return self.p_w(z_sa).astype(jnp.float32)
 
-class Critic(nnx.Module):
-    """Independent categorical Q networks consuming shared [B, D] state-action features."""
-
-    @nnx.vmap(in_axes=(CRITIC_STATE_AXES, None, None, 0, None, None, None, None))
-    def __init__(self, z_sa_dim: int, hidden_dim: int, rngs: nnx.Rngs, num_blocks: int = 1, use_bias: bool = True,
-                 compute_type: Dtype = jnp.float32, num_head: int = 101) -> None:
-        self.trunk = FlashSACEncoder(z_sa_dim, num_blocks, hidden_dim, rngs, use_bias, compute_type)
-        self.value_head = nnx.Linear(hidden_dim, num_head, dtype=compute_type, rngs=rngs)
-        self.dist = CategoricalPolicy(num_head, -5.0, 5.0)
-
-    @nnx.vmap(in_axes=(CRITIC_STATE_AXES, None, None), out_axes=0)
     def __call__(self, z_sa: jax.Array, training: bool = True) -> jax.Array:
-        x = self.trunk(z_sa, training)
-        logits = self.value_head(x)
-        return logits.astype(jnp.float32)
+        return self.q(z_sa, training=training)
 
     def q_values(self, z_sa: jax.Array, training: bool = True) -> jax.Array:
         return self.dist.q_values(self(z_sa, training=training))
