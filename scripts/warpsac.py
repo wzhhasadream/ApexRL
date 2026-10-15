@@ -32,7 +32,7 @@ class Args(WarpSACConfig):
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    cfg = WarpSACConfig.from_cli(args, args.env_type, args.env_id)
+    cfg = args.from_cli(args.env_type, args.env_id)
 
     if args.backend == "jax":
         from ApexRL.agents.warpsac.jax import WarpSACAgent

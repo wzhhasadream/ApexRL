@@ -32,7 +32,7 @@ class Args(FastSACConfig):
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    cfg = FastSACConfig.from_cli(args, args.env_type, args.env_id)
+    cfg = args.from_cli(args.env_type, args.env_id)
 
     if args.backend == "jax":
         from ApexRL.agents.fastsac.jax import FastSACAgent

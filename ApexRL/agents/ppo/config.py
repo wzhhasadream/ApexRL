@@ -11,7 +11,7 @@ from ..base_config import BaseConfig
 class PPOConfig(BaseConfig):
     """PPO. Dataclass defaults are rsl_rl-style massively parallel continuous control.
 
-    ``PPOConfig.from_env(env_type, env_name, **overrides)`` applies the presets below, then the overrides.
+    ``cfg.from_env(env_type, env_name, **overrides)`` applies presets and overrides in place.
     """
 
     seed: int = 1

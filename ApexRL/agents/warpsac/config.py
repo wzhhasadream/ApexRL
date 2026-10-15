@@ -44,6 +44,7 @@ class WarpSACConfig(BaseConfig):
     target_entropy: float = field(init=False, default=0.0)
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         if self.num_train_env < 1 or self.total_timesteps < 1 or self.buffer_size < self.num_train_env:
             raise ValueError("num_train_env, total_timesteps and buffer_size must be positive")
         if self.n_step < 1 or self.policy_frequency < 1 or self.target_frequency < 1 or self.num_q < 1:

@@ -30,7 +30,7 @@ class Args(VSimbaConfig):
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    cfg = VSimbaConfig.from_cli(args, args.env_type, args.env_id)
+    cfg = args.from_cli(args.env_type, args.env_id)
 
     if args.backend == "jax":
         from ApexRL.agents.v_simba.jax import VSimbaAgent

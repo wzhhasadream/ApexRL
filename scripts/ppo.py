@@ -32,7 +32,7 @@ class Args(PPOConfig):
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    cfg = PPOConfig.from_cli(args, args.env_type, args.env_id)
+    cfg = args.from_cli(args.env_type, args.env_id)
 
     if args.backend == "jax":
         from ApexRL.agents.ppo.jax import PPOAgent
