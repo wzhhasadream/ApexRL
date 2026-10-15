@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from ..base_config import BaseConfig
 
@@ -52,10 +52,7 @@ class RePTConfig(BaseConfig):
     image_obs: bool = field(init=False, default=False)
     target_entropy: float = field(init=False, default=0.0)
 
-    @classmethod
-    def presets(cls, env_type: str, env_name: str | None = None) -> dict[str, Any]:
-        presets = super().presets(env_type, env_name)
-        if env_name is not None and env_name.endswith("-visual"):
-            presets.update(total_timesteps=500_000, learning_starts=5_000, action_repeat=2,
-                           batch_size=256, grad_step_per_interaction_step=0.5, n_step=3)
-        return presets
+    ENV_TYPE_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {
+        "cpu_sim_visual": dict(total_timesteps=500_000, learning_starts=5_000, action_repeat=2,
+                               batch_size=256, grad_step_per_interaction_step=0.5, n_step=3),
+    }

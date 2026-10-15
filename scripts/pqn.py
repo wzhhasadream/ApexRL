@@ -15,7 +15,7 @@ class Args(PQNConfig):
     backend: Literal["jax", "torch"] = "jax"
     env_type: Literal["atari"] = "atari"
     env_id: str = "Pong-v5"
-    num_eval_envs: int = 10
+    num_eval_envs: int = 50
     eval_episodes: int | None = None  # Defaults to one episode per evaluation environment.
     action_repeat: int | None = None
     max_episode_steps: int | None = None
@@ -31,7 +31,7 @@ class Args(PQNConfig):
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    cfg = PQNConfig.from_cli(args, args.env_type, args.env_id)
+    cfg = args.from_cli(args.env_type, args.env_id)
 
     if args.backend == "jax":
         from ApexRL.agents.pqn.jax import PQNAgent

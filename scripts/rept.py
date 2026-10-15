@@ -16,7 +16,7 @@ class Args(RePTConfig):
     env_type: Literal["mujoco", "dmc", "myosuite", "humanoid_bench", "metaworld"] = "mujoco"
     env_id: str = "HalfCheetah-v4"
     num_eval_envs: int = 1
-    eval_episodes: int | None = 10  # None selects one episode per evaluation environment.
+    eval_episodes: int | None = 50  # None selects one episode per evaluation environment.
     max_episode_steps: int | None = None
     rescale_action: bool = True
     num_eval: int = 20
@@ -31,7 +31,7 @@ class Args(RePTConfig):
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    cfg = RePTConfig.from_cli(args, args.env_type, args.env_id)
+    cfg = args.from_cli(args.env_type, args.env_id)
 
     from ApexRL.agents.rept.jax import RePTAgent
 
