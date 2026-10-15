@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +52,7 @@ class OffPolicyRunner:
         logger.init(
             project=self.project,
             name=self.run_name,
-            config={**vars(agent.cfg), **self.agent.observation_debug_info},
+            config={**asdict(agent.cfg), **self.agent.observation_debug_info},
             dir=self.results_dir,
         )
 
