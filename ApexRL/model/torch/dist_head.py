@@ -66,6 +66,34 @@ class CategoricalPolicy(nn.Module):
 
 
 
+class TwoHotReward(nn.Module):
+    """Two-hot reward targets on symexp support; rewards have shape [..., 1]."""
+
+    def __init__(self, num_bins: int = 101, v_min: float = -10.0, v_max: float = 10.0) -> None:
+        super().__init__()
+        bins = torch.linspace(v_min, v_max, num_bins)
+        self.register_buffer("bins", bins.sign() * bins.abs().expm1())
+        self.num_bins = num_bins
+
+    def encode(self, rewards: torch.Tensor) -> torch.Tensor:
+        rewards = rewards.detach().float()
+        bins = self.bins.to(rewards)
+        rewards = rewards.clamp(bins[0], bins[-1])
+        upper = torch.searchsorted(bins, rewards.contiguous()).clamp(1, self.num_bins - 1)
+        lower = upper - 1
+        weight = (rewards - bins[lower]) / (bins[upper] - bins[lower])
+        probs = rewards.new_zeros((*rewards.shape[:-1], self.num_bins))
+        probs.scatter_add_(-1, lower, 1.0 - weight)
+        return probs.scatter_add_(-1, upper, weight)
+
+    def decode(self, logits: torch.Tensor) -> torch.Tensor:
+        logits = logits.float()
+        return (logits.softmax(dim=-1) * self.bins.to(logits)).sum(dim=-1, keepdim=True)
+
+    def loss(self, logits: torch.Tensor, rewards: torch.Tensor) -> torch.Tensor:
+        return -(self.encode(rewards) * F.log_softmax(logits.float(), dim=-1)).sum(dim=-1).mean()
+
+
 class QuantilePolicy(nn.Module):
     def __init__(self, num_taus: int) -> None:
         super().__init__()

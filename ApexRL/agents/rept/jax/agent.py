@@ -100,6 +100,7 @@ class RePTAgent(OffPolicyAgent):
             vision_encoder=self.cfg.vision_encoder,
             num_q=self.cfg.num_q,
             num_head=self.cfg.num_head,
+            reward_num_bins=self.cfg.reward_num_bins,
         )
         self.actor = Network(
             actor_model, nnx.Optimizer(actor_model, optax.adam(policy_schedule), wrt=nnx.Param),

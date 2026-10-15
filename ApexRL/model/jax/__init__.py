@@ -7,7 +7,7 @@ from typing import TypeVar, Generic, Sequence
 from .normalize_params import project_param
 import orbax.checkpoint as ocp
 from pathlib import Path
-from .dist_head import CategoricalPolicy, QuantilePolicy
+from .dist_head import CategoricalPolicy, QuantilePolicy, TwoHotReward
 from .normalization import OnPolicyRMS, RewardNormalizer, RMS
 from .layer import BatchNorm, BatchRenorm, LayerNorm, MLP, RMSNorm
 

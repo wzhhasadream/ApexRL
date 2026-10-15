@@ -39,6 +39,7 @@ class RePTConfig(BaseConfig):
     num_critic_blocks: int = 1
     num_q: int = 2
     num_head: int = 101
+    reward_num_bins: int = 101  # Set to 1 for scalar reward regression.
     use_bias: bool = False
     actor_normalize_parameters: bool = False
     critic_normalize_parameters: bool = True

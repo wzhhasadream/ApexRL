@@ -90,6 +90,36 @@ class CategoricalPolicy(nnx.Module):
 
 
 
+class TwoHotReward(nnx.Module):
+    """Two-hot reward targets on symexp support; rewards have shape [..., 1]."""
+
+    def __init__(self, num_bins: int = 101, v_min: float = -10.0, v_max: float = 10.0) -> None:
+        bins = jnp.linspace(v_min, v_max, num_bins, dtype=jnp.float32)
+        self._bins = nnx.Variable(jnp.sign(bins) * jnp.expm1(jnp.abs(bins)))
+        self.num_bins = num_bins
+
+    @property
+    def bins(self) -> jax.Array:
+        return self._bins.value
+
+    def encode(self, rewards: jax.Array) -> jax.Array:
+        rewards = jax.lax.stop_gradient(jnp.asarray(rewards, dtype=jnp.float32))
+        bins = self.bins
+        rewards = jnp.clip(rewards, bins[0], bins[-1])
+        upper = jnp.clip(jnp.searchsorted(bins, rewards), 1, self.num_bins - 1)
+        lower = upper - 1
+        weight = (rewards - bins[lower]) / (bins[upper] - bins[lower])
+        return (1.0 - weight) * jax.nn.one_hot(lower[..., 0], self.num_bins) + weight * jax.nn.one_hot(upper[..., 0], self.num_bins)
+
+    def decode(self, logits: jax.Array) -> jax.Array:
+        logits = jnp.asarray(logits, dtype=jnp.float32)
+        return jnp.sum(jax.nn.softmax(logits, axis=-1) * self.bins, axis=-1, keepdims=True)
+
+    def loss(self, logits: jax.Array, rewards: jax.Array) -> jax.Array:
+        logits = jnp.asarray(logits, dtype=jnp.float32)
+        return -jnp.mean(jnp.sum(self.encode(rewards) * jax.nn.log_softmax(logits, axis=-1), axis=-1))
+
+
 class QuantilePolicy(nnx.Module):
     """Quantile critic head with quantile-Huber regression loss."""
 

@@ -5,7 +5,7 @@ from flax.typing import Dtype
 from typing import Literal
 
 from ....model.jax.policy import SquashedTanhGaussianPolicy
-from ....model.jax import CategoricalPolicy, Alpha
+from ....model.jax import CategoricalPolicy, Alpha, TwoHotReward
 from ....model.jax.backbones import (
     FlashSACEncoder,
     DRQVisionEncoder,
@@ -34,7 +34,7 @@ class Critic(nnx.Module):
     def __init__(self, obs_shape: tuple[int, ...], action_dim: int, rngs: nnx.Rngs, num_encoder_blocks: int = 1,
                  z_s_dim: int = 256, z_sa_dim: int = 256, use_bias: bool = True, compute_type: Dtype = jnp.float32,
                  vision_encoder: Literal["drq_dot", "drqv2", "vsimba"] = "drqv2", hidden_dim: int = 256,
-                 num_blocks: int = 1, num_q: int = 2, num_head: int = 101) -> None:
+                 num_blocks: int = 1, num_q: int = 2, num_head: int = 101, reward_num_bins: int = 101) -> None:
         self.cnn = None
         input_dim = obs_shape[0]
         if len(obs_shape) == 4:
@@ -43,7 +43,8 @@ class Critic(nnx.Module):
             input_dim = self.cnn.get_output_dim()
         self.s_encoder = FlashSACEncoder(input_dim, num_encoder_blocks, z_s_dim, rngs, use_bias, compute_type)
         self.sa_encoder = FlashSACEncoder(z_s_dim + action_dim, num_encoder_blocks, z_sa_dim, rngs, use_bias, compute_type)
-        self.reward_head = nnx.Linear(z_sa_dim, 1, use_bias=use_bias, dtype=compute_type, rngs=rngs)
+        self.reward_head = nnx.Linear(z_sa_dim, reward_num_bins, use_bias=use_bias, dtype=compute_type, rngs=rngs)
+        self.reward_dist = TwoHotReward(reward_num_bins) if reward_num_bins > 1 else None
         self.p_w = nnx.Linear(z_sa_dim, z_s_dim, use_bias=use_bias, dtype=compute_type, rngs=rngs)
         self.nce_alpha = Alpha(100)
         self.q = QHead(z_sa_dim, hidden_dim, rngs.fork(split=num_q), num_blocks, use_bias, compute_type, num_head)
@@ -60,7 +61,12 @@ class Critic(nnx.Module):
         return self.nce_alpha()
 
     def pred_reward(self, z_sa: jax.Array) -> jax.Array:
-        return self.reward_head(z_sa).astype(jnp.float32)
+        logits = self.reward_head(z_sa).astype(jnp.float32)
+        return self.reward_dist.decode(logits) if self.reward_dist is not None else logits
+
+    def reward_loss(self, z_sa: jax.Array, rewards: jax.Array) -> jax.Array:
+        logits = self.reward_head(z_sa).astype(jnp.float32)
+        return self.reward_dist.loss(logits, rewards) if self.reward_dist is not None else jnp.square(logits - rewards).mean()
 
     def pred_z_s(self, z_sa: jax.Array) -> jax.Array:
         return self.p_w(z_sa).astype(jnp.float32)

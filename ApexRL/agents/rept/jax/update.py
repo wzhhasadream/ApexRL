@@ -53,7 +53,7 @@ def update_critic(
         labels = jnp.broadcast_to(jnp.arange(batch_size), (horizon, batch_size))
         nce_losses = softmax_cross_entropy_with_integer_labels(nce_logits, labels)
         nce_loss = (nce_losses * valid).sum() / jnp.maximum(valid.sum(), 1)
-        reward_loss = jnp.square(critic.pred_reward(z_sa) - transitions.rewards).mean()
+        reward_loss = critic.reward_loss(z_sa, transitions.rewards)
         logits = critic(all_z_sa, training=True)[:, :batch_size]
         td_loss = critic.dist.loss(logits, target_probs).mean()
         loss = td_loss + cfg.nce_coef * nce_loss + cfg.reward_coef * reward_loss
