@@ -21,7 +21,7 @@ class Args(RePTConfig):
     rescale_action: bool = True
     num_eval: int = 20
     num_log: int = 50
-    results_dir: str = "Results"
+    results_dir: str = "RePT-Result"
     record_video: bool = False
     save_agent: bool = False
     save_onnx: bool = False
@@ -31,7 +31,7 @@ class Args(RePTConfig):
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    cfg = args.from_cli(args.env_type, args.env_id)
+    cfg = RePTConfig.from_cli(args, args.env_type, args.env_id)
 
     from ApexRL.agents.rept.jax import RePTAgent
 
