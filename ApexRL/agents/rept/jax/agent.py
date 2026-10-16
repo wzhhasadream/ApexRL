@@ -93,7 +93,6 @@ class RePTAgent(OffPolicyAgent):
             num_encoder_blocks=self.cfg.num_encoder_blocks,
             z_s_dim=self.cfg.z_s_dim,
             z_sa_dim=self.cfg.z_sa_dim,
-            hidden_dim=self.cfg.critic_hidden_dim,
             num_blocks=self.cfg.num_critic_blocks,
             use_bias=self.cfg.use_bias,
             compute_type=compute_type,

@@ -10,10 +10,6 @@ from flax import nnx
 from ..config import RePTConfig
 
 
-def l2_norm(feature: jax.Array) -> jax.Array:
-    return feature * jax.lax.rsqrt(jnp.maximum(jnp.square(feature).sum(axis=-1, keepdims=True), 1e-12))
-
-
 def update_critic(
     critic: Network[Critic],
     target_critic: Network[Critic],
@@ -45,13 +41,14 @@ def update_critic(
     def critic_loss(critic: Critic):
         all_z_s = critic.embed_s(all_observations, training=True)
         all_z_sa = critic.embed_sa(all_z_s, all_actions, training=True)
-        z_sa = all_z_sa[:num_transitions]
-        pred_z_s = critic.pred_z_s(z_sa).reshape(horizon, batch_size, -1)
-        # Each raw time step has its own batch negatives, without an ensemble axis.
-        nce_logits = jnp.einsum("tbd,tcd->tbc", pred_z_s, next_features)
-        labels = jnp.broadcast_to(jnp.arange(batch_size), (horizon, batch_size))
+        z_sa = all_z_sa[:, :num_transitions]
+        num_q = z_sa.shape[0]
+        pred_z_s = critic.pred_z_s(z_sa).reshape(num_q, horizon, batch_size, -1)
+        # Each Q and time step contrasts against the same shared target states.
+        nce_logits = jnp.einsum("qtbd,tcd->qtbc", pred_z_s, next_features)
+        labels = jnp.broadcast_to(jnp.arange(batch_size), (num_q, horizon, batch_size))
         nce_losses = softmax_cross_entropy_with_integer_labels(nce_logits, labels)
-        nce_loss = (nce_losses * valid).sum() / jnp.maximum(valid.sum(), 1)
+        nce_loss = (nce_losses * valid[None, ...]).sum() / jnp.maximum(num_q * valid.sum(), 1)
         reward_loss = critic.reward_loss(z_sa, transitions.rewards)
         logits = critic(all_z_sa, training=True)[:, :batch_size]
         td_loss = critic.dist.loss(logits, target_probs).mean()

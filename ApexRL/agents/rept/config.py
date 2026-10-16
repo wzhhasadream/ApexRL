@@ -33,10 +33,9 @@ class RePTConfig(BaseConfig):
     z_s_dim: int = 128
     z_sa_dim: int = 256
     actor_hidden_dim: int = 128
-    critic_hidden_dim: int = 256
     num_encoder_blocks: int = 1
     num_actor_blocks: int = 1
-    num_critic_blocks: int = 1
+    num_critic_blocks: int = 2
     num_q: int = 2
     num_head: int = 101
     reward_num_bins: int = 101  # Set to 1 for scalar reward regression.
