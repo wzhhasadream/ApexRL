@@ -58,7 +58,7 @@ class Critic(nnx.Module):
         return self.sa_encoder(jnp.concatenate([z_s, actions], axis=-1), training=training).astype(jnp.float32)
 
     def get_alpha(self) -> jax.Array:
-        return jnp.clip(self.nce_alpha(), 0, 100)
+        return self.nce_alpha()
 
     def pred_reward(self, z_sa: jax.Array) -> jax.Array:
         logits = self.reward_head(z_sa).astype(jnp.float32)
