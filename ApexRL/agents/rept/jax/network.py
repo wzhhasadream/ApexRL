@@ -46,7 +46,6 @@ class Critic(nnx.Module):
         self.reward_head = nnx.Linear(z_sa_dim, reward_num_bins, use_bias=use_bias, dtype=compute_type, rngs=rngs)
         self.reward_dist = TwoHotReward(reward_num_bins) if reward_num_bins > 1 else None
         self.p_w = nnx.Linear(z_sa_dim, z_s_dim, use_bias=use_bias, dtype=compute_type, rngs=rngs)
-        self.nce_alpha = Alpha()
         self.q = QHead(z_sa_dim, hidden_dim, rngs.fork(split=num_q), num_blocks, use_bias, compute_type, num_head)
         self.dist = CategoricalPolicy(num_head, -5.0, 5.0)
 
@@ -57,8 +56,6 @@ class Critic(nnx.Module):
     def embed_sa(self, z_s: jax.Array, actions: jax.Array, training: bool = False) -> jax.Array:
         return self.sa_encoder(jnp.concatenate([z_s, actions], axis=-1), training=training).astype(jnp.float32)
 
-    def get_alpha(self) -> jax.Array:
-        return self.nce_alpha()
 
     def pred_reward(self, z_sa: jax.Array) -> jax.Array:
         logits = self.reward_head(z_sa).astype(jnp.float32)

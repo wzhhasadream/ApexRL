@@ -32,7 +32,7 @@ def update_critic(
     # Layout: raw current states followed by TD bootstrap states.
     all_observations = jnp.concatenate([transitions.observations, batch.next_observations], axis=0)        # ((T + 1) * B, obs_dim)
     target_z_s = target_critic.model.embed_s(all_observations, training=True)
-    next_features = l2_norm(jax.lax.stop_gradient(target_z_s[-num_transitions:])).reshape(horizon, batch_size, -1)
+    next_features = jax.lax.stop_gradient(target_z_s[-num_transitions:]).reshape(horizon, batch_size, -1)
     next_actions, next_log_prob = actor.model.get_action(target_z_s[-batch_size:], key=key, training=False)
     all_actions = jnp.concatenate([transitions.actions, next_actions], axis=0)
     target_z_sa = target_critic.model.embed_sa(target_z_s, all_actions, training=True)
@@ -46,10 +46,9 @@ def update_critic(
         all_z_s = critic.embed_s(all_observations, training=True)
         all_z_sa = critic.embed_sa(all_z_s, all_actions, training=True)
         z_sa = all_z_sa[:num_transitions]
-        pred_z_s = l2_norm(critic.pred_z_s(z_sa)).reshape(horizon, batch_size, -1)
-        nce_alpha = critic.get_alpha()
+        pred_z_s = critic.pred_z_s(z_sa).reshape(horizon, batch_size, -1)
         # Each raw time step has its own batch negatives, without an ensemble axis.
-        nce_logits = nce_alpha * jnp.einsum("tbd,tcd->tbc", pred_z_s, next_features)
+        nce_logits = jnp.einsum("tbd,tcd->tbc", pred_z_s, next_features)
         labels = jnp.broadcast_to(jnp.arange(batch_size), (horizon, batch_size))
         nce_losses = softmax_cross_entropy_with_integer_labels(nce_logits, labels)
         nce_loss = (nce_losses * valid).sum() / jnp.maximum(valid.sum(), 1)
@@ -57,7 +56,7 @@ def update_critic(
         logits = critic(all_z_sa, training=True)[:, :batch_size]
         td_loss = critic.dist.loss(logits, target_probs).mean()
         loss = td_loss + cfg.nce_coef * nce_loss + cfg.reward_coef * reward_loss
-        return loss, {"td_loss": td_loss, "nce_loss": nce_loss, "reward_loss": reward_loss, "nce_alpha": nce_alpha}
+        return loss, {"td_loss": td_loss, "nce_loss": nce_loss, "reward_loss": reward_loss}
 
     (_loss, info), grads = nnx.value_and_grad(critic_loss, has_aux=True)(critic.model)
     critic.grad_step(grads)

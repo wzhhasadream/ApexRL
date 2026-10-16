@@ -28,7 +28,7 @@ class RePTConfig(BaseConfig):
     q_lr: float = 3e-4
     end_lr: float = 1.5e-4
     nce_coef: float = 1.0
-    reward_coef: float = 1.0
+    reward_coef: float = 0.1
 
     z_s_dim: int = 128
     z_sa_dim: int = 256
