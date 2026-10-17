@@ -56,7 +56,7 @@ def update_critic(
         loss = td_loss + cfg.nce_coef * nce_loss + cfg.reward_coef * reward_loss
         return loss, {"td_loss": td_loss, "nce_loss": nce_loss, "reward_loss": reward_loss}
 
-    (_loss, info), grads = nnx.value_and_grad(critic_loss, has_aux=True)(critic.model, actor.mode, target_critic.model)
+    (_loss, info), grads = nnx.value_and_grad(critic_loss, has_aux=True)(critic.model, actor.model, target_critic.model)
     critic.grad_step(grads)
     if cfg.critic_normalize_parameters:
         critic.project_param()
