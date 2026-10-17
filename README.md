@@ -83,7 +83,7 @@ uv pip install -e ".[all]"
 | ---------------------------------------------------------- | ----------------------------------------------- | ------------------------ |
 | `all`                                                      | Both backends and every environment extra below | full installation        |
 | `torch` / `jax`                                            | PyTorch 2.9 / JAX 0.6 + Flax NNX, Optax, Orbax  | the PyTorch / JAX agents |
-| `atari`                                                    | ALE, envpool                                    | `env_type="atari"`       |
+| `atari`                                                    | EnvPool 1.2.5                                   | `env_type="atari"`       |
 | `mujoco`, `dmc`, `myosuite`, `humanoid-bench`, `metaworld` | CPU MuJoCo-based suites                         | the matching `env_type`  |
 | `playground`, `mjlab`                                      | MuJoCo Playground (MJX / Warp), mjlab           | GPU MuJoCo simulators    |
 | `isaaclab`                                                 | Isaac Sim 5.1, Isaac Lab 2.3                    | `env_type="isaaclab"`    |
@@ -269,9 +269,15 @@ These DMC and MuJoCo examples produce observations shaped `[num_envs, 3, 84, 84,
 The suffix enables pixels in `create_envs` and selects the `cpu_sim_visual` preset in `cfg.from_env`. Atari and GPU simulators
 use their own observation setup.
 
-Atari training and evaluation run on [envpool](https://github.com/sail-sg/envpool) with the purejaxql settings:
+Atari training, evaluation, and video recording run on [EnvPool](https://github.com/sail-sg/envpool) with the purejaxql settings:
 life-loss episodes and reward clipping during training only, no sticky actions, up to 30 no-ops on reset, and
-FIRE on reset. envpool cannot render, so video recording uses a single gymnasium ALE env configured the same way.
+FIRE on reset. Native RGB rendering was added in [EnvPool 1.0.1](https://github.com/sail-sg/envpool/pull/366).
+ApexRL pins [EnvPool 1.2.5](https://pypi.org/project/envpool/1.2.5/), the latest release with Python 3.11 wheels;
+1.2.6 and later require Python 3.12. The `atari` extra uses EnvPool's bundled emulator and ROM assets.
+With `--record-video`, frames come directly from EnvPool via `render_mode="rgb_array"`; `render()` returns
+all recording environments as `[num_envs, 210, 160, 3]` RGB `uint8` frames.
+ApexRL uses CPU `step()` with JIT-compiled JAX policies and updates. EnvPool 1.2.5's optional `xla()`
+interface is incompatible with the pinned JAX 0.6 FFI runtime.
 
 ## Project layout
 
