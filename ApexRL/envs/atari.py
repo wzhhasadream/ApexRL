@@ -1,6 +1,5 @@
 import gymnasium as gym
 import numpy as np
-from gymnasium.wrappers import AtariPreprocessing, FrameStackObservation
 
 
 ATARI57 = [
@@ -125,62 +124,25 @@ ATARI_SCORES = {
 }
 
 
-
-
-class FireReset(gym.Wrapper):
-    """Press FIRE after reset, matching envpool's use_fire_reset=True."""
-
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        obs, _, terminated, truncated, info = self.env.step(1)
-        if terminated or truncated:
-            obs, info = self.env.reset(**kwargs)
-        return obs, info
-
-
-def make_atari_env(
-    env_name: str,
-    seed: int,
-    render_mode: str | None = None,
-    action_repeat: int = 4,
-    max_episode_steps: int = 108_000,
-) -> gym.Env:
-    """Single gymnasium Atari env for video recording, configured like envpool eval."""
-    import ale_py
-
-    gym.register_envs(ale_py)
-    if not env_name.startswith("ALE/"):
-        env_name = f"ALE/{env_name}"
-    # Sticky actions off to match envpool (purejaxql settings).
-    env = gym.make(env_name, frameskip=1, obs_type="rgb", max_episode_steps=max_episode_steps, render_mode=render_mode, repeat_action_probability=0.0)
-    env.reset(seed=seed)
-    env = AtariPreprocessing(env, frame_skip=action_repeat, screen_size=84, grayscale_newaxis=True)
-    if "FIRE" in env.unwrapped.get_action_meanings():
-        env = FireReset(env)
-    env = FrameStackObservation(env, stack_size=4)
-    env.observation_space.seed(seed)
-    env.action_space.seed(seed)
-    return env
-
-
 class EnvPoolAtari(gym.vector.VectorEnv):
     """envpool Atari exposed as a gymnasium VectorEnv with SameStep autoreset.
 
     envpool hard-codes NextStep autoreset, so done slots are reset right after
     the step and the terminal frame is returned in ``infos["final_obs"]``.
-    Observations are [N, F, H, W, 1] uint8 to match the gymnasium Atari path.
+    Observations are [N, F, H, W, 1] uint8; rendered frames are [N, H, W, 3].
     """
 
-    metadata = {"autoreset_mode": gym.vector.AutoresetMode.SAME_STEP}
+    metadata = {"autoreset_mode": gym.vector.AutoresetMode.SAME_STEP, "render_modes": ["rgb_array"]}
 
-    def __init__(self, env_name: str, num_envs: int, seed: int, training: bool = True, action_repeat: int = 4, max_episode_steps: int = 108_000, num_threads: int = 0) -> None:
+    def __init__(self, env_name: str, num_envs: int, seed: int, training: bool = True, action_repeat: int = 4, max_episode_steps: int = 108_000, num_threads: int = 0, render_mode: str | None = None) -> None:
         import envpool
 
         # purejaxql settings: envpool defaults (noop_max=30, sticky actions off, fire reset)
         # plus life-loss episodes and reward clipping during training.
         env_name = env_name.removeprefix("ALE/")
-        self.env = envpool.make(env_name, env_type="gymnasium", num_envs=num_envs, batch_size=num_envs, seed=seed, episodic_life=training, reward_clip=training, frame_skip=action_repeat, max_episode_steps=max_episode_steps // action_repeat, num_threads=num_threads)
+        self.env = envpool.make(env_name, env_type="gymnasium", num_envs=num_envs, batch_size=num_envs, seed=seed, episodic_life=training, reward_clip=training, frame_skip=action_repeat, max_episode_steps=max_episode_steps // action_repeat, num_threads=num_threads, render_mode=render_mode)
         self.num_envs = num_envs
+        self.render_mode = render_mode
         frames, height, width = self.env.observation_space.shape
         self.single_observation_space = gym.spaces.Box(0, 255, (frames, height, width, 1), np.uint8)
         self.single_action_space = gym.spaces.Discrete(int(self.env.action_space.n))
@@ -205,9 +167,14 @@ class EnvPoolAtari(gym.vector.VectorEnv):
             obs[reset_info["env_id"]] = reset_obs[..., None]
         return obs, rewards.astype(np.float32), terminated, truncated, info
 
+    def render(self) -> np.ndarray | None:
+        if self.render_mode is None:
+            return None
+        return self.env.render(env_ids=np.arange(self.num_envs, dtype=np.int32))
+
     def close(self, **kwargs) -> None:
-        self.env.close() if hasattr(self.env, "close") else None
+        self.env.close()
 
 
-def make_envpool_atari_env(env_name: str, num_envs: int, seed: int, training: bool = True, action_repeat: int = 4, max_episode_steps: int = 108_000) -> EnvPoolAtari:
-    return EnvPoolAtari(env_name, num_envs, seed, training=training, action_repeat=action_repeat, max_episode_steps=max_episode_steps)
+def make_envpool_atari_env(env_name: str, num_envs: int, seed: int, training: bool = True, action_repeat: int = 4, max_episode_steps: int = 108_000, render_mode: str | None = None) -> EnvPoolAtari:
+    return EnvPoolAtari(env_name, num_envs, seed, training=training, action_repeat=action_repeat, max_episode_steps=max_episode_steps, render_mode=render_mode)
