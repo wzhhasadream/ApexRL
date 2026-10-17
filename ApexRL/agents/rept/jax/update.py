@@ -25,21 +25,22 @@ def update_critic(
     num_transitions = horizon * batch_size
     done = jnp.logical_or(sequence.terminations, sequence.truncations)[..., 0]
     valid = jnp.cumsum(done, axis=0) == 0
-    # Layout: raw current states followed by TD bootstrap states.
-    all_observations = jnp.concatenate([transitions.observations, batch.next_observations], axis=0)        # ((T + 1) * B, obs_dim)
-    target_z_s = target_critic.model.embed_s(all_observations, training=True)
-    next_features = jax.lax.stop_gradient(target_z_s[-num_transitions:]).reshape(horizon, batch_size, -1)
-    next_actions, next_log_prob = actor.model.get_action(target_z_s[-batch_size:], key=key, training=False)
-    all_actions = jnp.concatenate([transitions.actions, next_actions], axis=0)
-    target_z_sa = target_critic.model.embed_sa(target_z_s, all_actions, training=True)
-    next_logits = target_critic.model(target_z_sa, training=True)[:, num_transitions:]
-    dist = critic.model.dist
-    continuation = batch.discounts * (1.0 - batch.dones)
-    target_bins = batch.rewards + continuation * (dist.bins - alpha.model() * next_log_prob)
-    target_probs = dist.target_probs(dist.select_min_logits(next_logits), target_bins)
+    alpha_value = alpha.model()
 
-    def critic_loss(critic: Critic):
+    def critic_loss(critic: Critic, actor: Actor, target_critic: Critic):
+        all_observations = jnp.concatenate([transitions.observations, batch.next_observations], axis=0)        # ((T + 1) * B, obs_dim)
         all_z_s = critic.embed_s(all_observations, training=True)
+        # Layout: raw current states followed by TD bootstrap states.
+        target_z_s = target_critic.embed_s(all_observations, training=True)
+        next_features = jax.lax.stop_gradient(target_z_s[-num_transitions:]).reshape(horizon, batch_size, -1)
+        next_actions, next_log_prob = actor.get_action(jax.lax.stop_gradient(all_z_s[-batch_size:]), key=key, training=False)
+        all_actions = jnp.concatenate([transitions.actions, next_actions], axis=0)
+        target_z_sa = target_critic.embed_sa(target_z_s, all_actions, training=True)
+        next_logits = target_critic(target_z_sa, training=True)[:, num_transitions:]
+        dist = critic.dist
+        continuation = batch.discounts * (1.0 - batch.dones)
+        target_bins = batch.rewards + continuation * (dist.bins - alpha_value * next_log_prob)
+        target_probs = dist.target_probs(dist.select_min_logits(next_logits), target_bins)
         all_z_sa = critic.embed_sa(all_z_s, all_actions, training=True)
         z_sa = all_z_sa[:, :num_transitions]
         num_q = z_sa.shape[0]
@@ -55,7 +56,7 @@ def update_critic(
         loss = td_loss + cfg.nce_coef * nce_loss + cfg.reward_coef * reward_loss
         return loss, {"td_loss": td_loss, "nce_loss": nce_loss, "reward_loss": reward_loss}
 
-    (_loss, info), grads = nnx.value_and_grad(critic_loss, has_aux=True)(critic.model)
+    (_loss, info), grads = nnx.value_and_grad(critic_loss, has_aux=True)(critic.model, actor.mode, target_critic.model)
     critic.grad_step(grads)
     if cfg.critic_normalize_parameters:
         critic.project_param()
