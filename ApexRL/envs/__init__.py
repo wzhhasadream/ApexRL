@@ -45,7 +45,7 @@ def create_envs(
         return env, env, env
 
     envs = []
-    for num_envs, mode, training, record in ((num_train_envs, None, True, False), (num_eval_envs, None, False, False), (num_record_envs, render_mode, False, True)):
+    for num_envs, mode, training in ((num_train_envs, None, True), (num_eval_envs, None, False), (num_record_envs, render_mode, False)):
         vector_repeat = action_repeat
         if env_type == "metaworld" and env_name.upper() in ("MT10", "MT50"):
             from .metaworld import make_metaworld_benchmark_envs
@@ -54,16 +54,10 @@ def create_envs(
                 benchmark_name=env_name, seed=seed, num_envs=num_envs, render_mode=mode,
                 max_episode_steps=max_episode_steps, use_one_hot=True,
             )
-        elif env_type == "atari" and not record:
+        elif env_type == "atari":
             from .atari import make_envpool_atari_env
 
-            env = make_envpool_atari_env(env_name, num_envs, seed, training=training, action_repeat=action_repeat, max_episode_steps=max_episode_steps)
-            vector_repeat = 1
-        elif env_type == "atari":
-            # envpool cannot render, so the record env is a gymnasium env with matching settings.
-            from .atari import make_atari_env
-
-            env = SyncVectorEnv([lambda i=i: make_atari_env(env_name, seed + i, render_mode=mode, action_repeat=action_repeat, max_episode_steps=max_episode_steps) for i in range(num_envs)], autoreset_mode="SameStep")
+            env = make_envpool_atari_env(env_name, num_envs, seed, training=training, action_repeat=action_repeat, max_episode_steps=max_episode_steps, render_mode=mode)
             vector_repeat = 1
         elif env_type in CPU_SIM:
             env = create_vec_env(
