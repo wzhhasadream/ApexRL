@@ -54,6 +54,7 @@ class OffPolicyRunner:
             name=self.run_name,
             config={**asdict(agent.cfg), **self.agent.observation_debug_info},
             dir=self.results_dir,
+            hash_defaults=getattr(agent.cfg, "HASH_DEFAULTS", None),
         )
 
     @property

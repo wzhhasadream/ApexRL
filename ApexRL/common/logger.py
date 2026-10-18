@@ -68,11 +68,15 @@ def _normalize_config(value: Any, round_floats: bool = False) -> Any:
     return _to_python_scalar(value, round_floats=round_floats)
 
 
-def _config_hash(config: Dict, exclude_keys: tuple[str, ...] = ("seed",)) -> str:
+def _config_hash(config: Dict, exclude_keys: tuple[str, ...] = ("seed",), hash_defaults: Optional[Dict] = None) -> str:
     config_for_hash = {
         key: value for key, value in config.items() if str(key) not in exclude_keys
     }
     normalized = _normalize_config(config_for_hash)
+    # Only declared legacy defaults are equivalent to an absent field.
+    for key, value in (hash_defaults or {}).items():
+        if key in normalized and normalized[key] == _normalize_config(value):
+            del normalized[key]
     payload = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:8]
 
@@ -86,6 +90,7 @@ class Run:
         dir: str = "Results",
         flush_every: int = 100,
         flush_interval: float = 10.0,
+        hash_defaults: Optional[Dict] = None,
     ):
         self.project = project
         self.name = name or f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -97,7 +102,7 @@ class Run:
 
         cfg = config or {}
         self.seed = cfg.get("seed")
-        self.config_hash = _config_hash(cfg)
+        self.config_hash = _config_hash(cfg, hash_defaults=hash_defaults)
 
         os.makedirs(dir, exist_ok=True)
         run_parent_dir = os.path.join(
@@ -241,6 +246,7 @@ def init(
     dir: str = "Results",
     flush_every: int = 100,
     flush_interval: float = 10.0,
+    hash_defaults: Optional[Dict] = None,
 ) -> Run:
     """
     Create a new run and return it.
@@ -255,6 +261,7 @@ def init(
         dir=dir,
         flush_every=flush_every,
         flush_interval=flush_interval,
+        hash_defaults=hash_defaults,
     )
     return _current_run
 

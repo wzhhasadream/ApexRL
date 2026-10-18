@@ -30,6 +30,7 @@ class BaseConfig:
     ENV_TYPE_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {}
     ENV_NAME_PRESETS: ClassVar[dict[str, dict[str, Any]]] = {}
     DERIVED_FIELDS: ClassVar[tuple[str, ...]] = ()
+    HASH_DEFAULTS: ClassVar[dict[str, Any]] = {}  # Values equivalent to fields omitted in older configs.
 
     def __post_init__(self) -> None:
         self._auto_fields: set[str] = {name for name in self.DERIVED_FIELDS if getattr(self, name) is None}
