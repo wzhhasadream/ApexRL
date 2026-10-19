@@ -25,7 +25,7 @@ jax = [
     "optax==0.2.5",
     "orbax-checkpoint==0.11.30",
     "tensorflow-probability==0.25.0",
-    "jax2onnx==0.8.1",
+    "jax2onnx @ git+https://github.com/wzhhasadream/jax2onnx-compatible.git@9998d6e3380640aa08deaa96fccf54fc3b3ace2b",
 ]
 # ApexRL itself only needs torch; torchvision / torchaudio are listed in the extras whose packages require them
 torch = ["torch==2.9.0"]
