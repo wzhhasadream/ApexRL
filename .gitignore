@@ -4,6 +4,7 @@ __pycache__/
 build/
 dist/
 wheels/
+third_party/jax2onnx_compat/
 *.egg-info
 
 # Virtual environments

@@ -7,7 +7,7 @@ from typing import TypeVar, Generic, Sequence
 from .normalize_params import project_param
 import orbax.checkpoint as ocp
 from pathlib import Path
-from .dist_head import CategoricalPolicy, QuantilePolicy
+from .dist_head import CategoricalPolicy, QuantilePolicy, TwoHotReward
 from .normalization import OnPolicyRMS, RewardNormalizer, RMS
 from .layer import BatchNorm, BatchRenorm, LayerNorm, MLP, RMSNorm
 
@@ -94,11 +94,7 @@ class Network(nnx.Module, Generic[ModelT]):
         export_model.eval()
         forward_name = self.forward_name
 
-        def export_forward(*args, **kwargs):
-            if forward_name is not None:
-                return getattr(export_model, forward_name)(*args, **kwargs)
-            return export_model(*args, **kwargs)
-
+        export_forward = getattr(export_model, forward_name) if forward_name is not None else export_model
         model = to_onnx(export_forward, input_shapes)
         input_renames = {
             value.name: name for value, name in zip(model.graph.input, input_names)

@@ -1,4 +1,4 @@
-from .dist_head import CategoricalPolicy, QuantilePolicy
+from .dist_head import CategoricalPolicy, QuantilePolicy, TwoHotReward
 from .normalization import OnPolicyRMS, RMS, RewardNormalizer
 from .normalize_params import project_param
 import torch.nn as nn
