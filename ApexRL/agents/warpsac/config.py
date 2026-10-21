@@ -23,7 +23,7 @@ class WarpSACConfig(BaseConfig):
     policy_frequency: int = 2
     target_frequency: int = 1
     tau: float = 0.005
-    actor_hidden_dim: int = 256
+    actor_hidden_dim: int = 128
     actor_num_blocks: int = 2
     critic_hidden_dim: int = 256
     critic_num_blocks: int = 2
