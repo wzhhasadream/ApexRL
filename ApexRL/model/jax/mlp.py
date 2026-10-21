@@ -13,12 +13,12 @@ class FlashSACEmbedder(nnx.Module):
         hidden_dim: int,
         rngs: nnx.Rngs,
         use_bias: bool = True,
-        compute_dtype: Dtype = jnp.float32,
+        compute_type: Dtype = jnp.float32,
     ):
         self.norm = BatchNorm(
             feature_shape=input_dim,
             rngs=rngs,
-            dtype=compute_dtype,
+            dtype=compute_type,
         )
         self.w = nnx.Linear(
             input_dim,
@@ -26,7 +26,7 @@ class FlashSACEmbedder(nnx.Module):
             rngs=rngs,
             kernel_init=orthogonal(1),
             use_bias=use_bias,
-            dtype=compute_dtype,
+            dtype=compute_type,
         )
 
     def __call__(self, x: jax.Array, training: bool) -> jax.Array:
@@ -41,7 +41,7 @@ class FlashSACBlock(nnx.Module):
         rngs: nnx.Rngs,
         expansion: int = 4,
         use_bias: bool = True,
-        compute_dtype: Dtype = jnp.float32,
+        compute_type: Dtype = jnp.float32,
     ):
         self.w1 = nnx.Linear(
             hidden_dim,
@@ -49,7 +49,7 @@ class FlashSACBlock(nnx.Module):
             rngs=rngs,
             kernel_init=orthogonal(1),
             use_bias=use_bias,
-            dtype=compute_dtype,
+            dtype=compute_type,
         )
         self.w2 = nnx.Linear(
             hidden_dim * expansion,
@@ -57,17 +57,17 @@ class FlashSACBlock(nnx.Module):
             rngs=rngs,
             kernel_init=orthogonal(1),
             use_bias=use_bias,
-            dtype=compute_dtype,
+            dtype=compute_type,
         )
         self.norm1 = BatchNorm(
             feature_shape=hidden_dim * expansion,
             rngs=rngs,
-            dtype=compute_dtype,
+            dtype=compute_type,
         )
         self.norm2 = BatchNorm(
             feature_shape=hidden_dim,
             rngs=rngs,
-            dtype=compute_dtype,
+            dtype=compute_type,
         )
 
     def __call__(self, x: jax.Array, training: bool) -> jax.Array:
