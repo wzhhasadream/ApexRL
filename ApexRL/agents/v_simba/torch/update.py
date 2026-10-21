@@ -5,7 +5,7 @@ import torch
 from ....buffers.off_policy import Batch, SequenceBatch, compress_n_step
 from ....common.torch import augment_observations
 from ....model.torch import Alpha, Network
-from ....model.torch.backbones import VSimbaVisionEncoder
+from .backbone import VSimbaVisionEncoder
 from ..config import VSimbaConfig
 from .network import Actor, Critic
 

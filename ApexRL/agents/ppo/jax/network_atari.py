@@ -7,7 +7,7 @@ from flax.typing import Dtype
 
 from ....buffers.on_policy.types import PolicyMetadata
 from ....common import flatten_observation_dim
-from ....model.jax.backbones import NatureCNN
+from ....model.jax.vision import NatureCNN
 from ....model.jax.layer import orthogonal
 from ....model.jax.policy import MaskedCategoricalPolicy
 from ..config import PPOConfig

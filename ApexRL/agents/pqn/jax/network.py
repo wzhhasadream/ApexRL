@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from flax import nnx
 from flax.typing import Dtype
 
-from ....model.jax.backbones import HardMaxCNN, NatureCNN
+from ....model.jax.vision import HardMaxCNN, NatureCNN
 from ....model.jax.layer import orthogonal
 from ....model.jax.policy import DiscreteQGreedyPolicy
 

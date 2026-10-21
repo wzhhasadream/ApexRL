@@ -12,7 +12,7 @@ from ....buffers.off_policy import SequenceBatch, Transition
 from ....buffers.off_policy.numpy_lazy_frame_buffer import NumpyLazyFrameBuffer
 from ....common.torch import default_device
 from ....model.torch import Alpha, Network, RewardNormalizer, update_reward_normalizer
-from ....model.torch.backbones import VSimbaVisionEncoder
+from .backbone import VSimbaVisionEncoder
 from ...base_agent import OffPolicyAgent
 from ..config import VSimbaConfig
 from .get_action import get_eval_action, get_exploration_action

@@ -6,7 +6,7 @@ from flax import nnx
 from flax.typing import Dtype
 
 from ....model.jax import CategoricalPolicy
-from ....model.jax.backbones import VSimbaEmbedder, VSimbaEncoder, VSimbaProjector
+from .backbone import VSimbaEmbedder, VSimbaEncoder, VSimbaProjector
 from ....model.jax.layer import orthogonal
 from ....model.jax.policy import SquashedTanhGaussianPolicy
 

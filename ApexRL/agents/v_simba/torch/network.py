@@ -5,7 +5,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from ....model.torch import CategoricalPolicy, Linear
-from ....model.torch.backbones import (
+from .backbone import (
     VSimbaEncoder,
     VSimbaProjector,
     VSimbaVisionEncoder,

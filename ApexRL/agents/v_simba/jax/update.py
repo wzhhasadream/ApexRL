@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from ....buffers.off_policy import Batch, SequenceBatch, compress_n_step
 from ....common.jax.augment import augment_observations
 from ....model.jax import Alpha, Network, RewardNormalizer, soft_update
-from ....model.jax.backbones import VSimbaVisionEncoder
+from .backbone import VSimbaVisionEncoder
 from .network import Actor, Critic
 
 

@@ -14,7 +14,7 @@ from ....buffers.off_policy import Transition
 from ....buffers.off_policy.numpy_lazy_frame_buffer import NumpyLazyFrameBuffer
 from ....model.jax import Alpha, Network, RewardNormalizer
 from ....model.jax import update_reward_normalizer
-from ....model.jax.backbones import VSimbaVisionEncoder
+from .backbone import VSimbaVisionEncoder
 from ...base_agent import OffPolicyAgent
 from ..config import VSimbaConfig
 from .get_action import get_eval_action, get_exploration_action

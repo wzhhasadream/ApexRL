@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from ....model.torch import Linear
-from ....model.torch.backbones import HardMaxCNN, NatureCNN
+from ....model.torch.vision import HardMaxCNN, NatureCNN
 from ....model.torch.policy import DiscreteQGreedyPolicy
 from ..config import PQNConfig
 

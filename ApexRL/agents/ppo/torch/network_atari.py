@@ -6,7 +6,7 @@ import torch.nn as nn
 from ....buffers.on_policy.types import PolicyMetadata
 from ....common import flatten_observation_dim
 from ....model.torch import Linear
-from ....model.torch.backbones import NatureCNN
+from ....model.torch.vision import NatureCNN
 from ....model.torch.policy import MaskedCategoricalPolicy
 from ..config import PPOConfig
 

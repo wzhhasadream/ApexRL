@@ -4,7 +4,7 @@ import jax
 from flax import nnx
 
 from ....model.jax import Network
-from ....model.jax.backbones import VSimbaVisionEncoder
+from .backbone import VSimbaVisionEncoder
 from .network import Actor
 
 
